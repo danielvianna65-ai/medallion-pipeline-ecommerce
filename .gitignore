@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.pyc
+
+# Airflow
+airflow/logs/
+
+# Spark
+spark-warehouse/
+
+# Docker / Env
+.env
+
+# Hadoop
+tmp/

@@ -1,0 +1,174 @@
+x-spark-jar: &spark-jars ../../spark/external-jars:/opt/spark/external-jars
+
+
+services:
+  # =========================
+  # POSTGRES (AIRFLOW METADATA)
+  # =========================
+  airflow-db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - postgres-db-volume:/var/lib/postgresql/data
+    networks:
+      - medallion-net
+
+  # =========================
+  # AIRFLOW INIT
+  # =========================
+  airflow-init:
+    image: medallion-airflow:2.6
+    depends_on:
+      airflow-db:
+        condition: service_started
+    entrypoint: /bin/bash
+    command: >
+      -c "
+      airflow db init &&
+      airflow users create --username admin --password admin --firstname Admin --lastname User --role Admin --email admin@example.com
+      "
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__FERNET_KEY: "Yxkq3Y6j9mJpZ2v8L8zJ8Yb0K0Yz5yGxF5w3R2Q1abc="
+      AIRFLOW__WEBSERVER__SECRET_KEY: "super-secret-static-key"
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow-db:5432/airflow
+    networks:
+      - medallion-net
+
+  # =========================
+  # AIRFLOW WEBSERVER
+  # =========================
+  airflow-webserver:
+    build:
+      context: ../../airflow
+    image: medallion-airflow:2.10.5
+    depends_on:
+      - airflow-init
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__FERNET_KEY: "Yxkq3Y6j9mJpZ2v8L8zJ8Yb0K0Yz5yGxF5w3R2Q1abc="
+      AIRFLOW__WEBSERVER__SECRET_KEY: "super-secret-static-key"
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow-db:5432/airflow
+      AIRFLOW__CORE__LOAD_DEFAULT_CONNECTIONS: "False"
+    volumes:
+      - ../../airflow/dags:/opt/airflow/dags
+      - ../../airflow/logs:/opt/airflow/logs
+      - ../../spark/jobs:/opt/spark/jobs
+      - *spark-jars
+    ports:
+      - "8080:8080"
+    command: webserver
+    networks:
+      - medallion-net
+
+
+  # =========================
+  # AIRFLOW SCHEDULER
+  # =========================
+  airflow-scheduler:
+    build:
+      context: ../../airflow
+    image: medallion-airflow:2.10.5
+    depends_on:
+      - airflow-init
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__FERNET_KEY: "Yxkq3Y6j9mJpZ2v8L8zJ8Yb0K0Yz5yGxF5w3R2Q1abc="
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow-db:5432/airflow
+      AIRFLOW__CORE__LOAD_DEFAULT_CONNECTIONS: "False"
+    volumes:
+      - ../../airflow/dags:/opt/airflow/dags
+      - ../../airflow/logs:/opt/airflow/logs
+      - ../../spark/jobs:/opt/spark/jobs
+      - *spark-jars
+    command: scheduler
+    networks:
+      - medallion-net
+
+  # =========================
+  # HDFS NAMENODE
+  # =========================
+  namenode:
+    image: bde2020/hadoop-namenode:2.0.0-hadoop3.2.1-java8
+    container_name: namenode
+    ports:
+      - "9870:9870"
+      - "8020:8020"
+    environment:
+      CLUSTER_NAME: medallion
+      CORE_CONF_fs_defaultFS: hdfs://namenode:8020
+    volumes:
+      - namenode-data:/hadoop/dfs/name
+    networks:
+      - medallion-net
+
+  # =========================
+  # HDFS DATANODE
+  # =========================
+  datanode:
+    image: bde2020/hadoop-datanode:2.0.0-hadoop3.2.1-java8
+    depends_on:
+      - namenode
+    environment:
+      CORE_CONF_fs_defaultFS: hdfs://namenode:8020
+    volumes:
+      - datanode-data:/hadoop/dfs/data
+    networks:
+      - medallion-net
+
+  # =========================
+  # SPARK MASTER
+  # =========================
+  spark-master:
+    image: apache/spark:3.5.8
+    container_name: spark-master
+    command: >
+      /opt/spark/bin/spark-class
+      org.apache.spark.deploy.master.Master
+    ports:
+      - "7077:7077"
+      - "8081:8080"
+    volumes:
+      - ../../spark/jobs:/opt/spark/jobs
+      - *spark-jars
+      - ../../infra/hadoop:/opt/hadoop/etc/hadoop
+    environment:
+      - HADOOP_CONF_DIR=/opt/hadoop/etc/hadoop
+    networks:
+      - medallion-net
+
+  # =========================
+  # SPARK WORKER
+  # =========================
+  spark-worker:
+    image: apache/spark:3.5.8
+    container_name: spark-worker
+    depends_on:
+      - spark-master
+    command: >
+      /opt/spark/bin/spark-class
+      org.apache.spark.deploy.worker.Worker
+      spark://spark-master:7077
+    volumes:
+      - ../../spark/jobs:/opt/spark/jobs
+      - *spark-jars
+      - ../../infra/hadoop:/opt/hadoop/etc/hadoop
+    environment:
+      - HADOOP_CONF_DIR=/opt/hadoop/etc/hadoop
+      - SPARK_WORKER_MEMORY=10g
+      - SPARK_WORKER_CORES=8
+    networks:
+      - medallion-net
+
+networks:
+  medallion-net:
+    driver: bridge
+
+volumes:
+  namenode-data:
+  datanode-data:
+  postgres-db-volume:
+  mysql-data:
