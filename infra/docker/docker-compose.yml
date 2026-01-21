@@ -57,6 +57,7 @@ services:
       - ../../airflow/dags:/opt/airflow/dags
       - ../../airflow/logs:/opt/airflow/logs
       - ../../spark/jobs:/opt/spark/jobs
+      - /home/dlv/PycharmProjects/medallion-pipeline-ecommerce/spark:/opt/spark/app
       - *spark-jars
     ports:
       - "8080:8080"
@@ -83,6 +84,7 @@ services:
       - ../../airflow/dags:/opt/airflow/dags
       - ../../airflow/logs:/opt/airflow/logs
       - ../../spark/jobs:/opt/spark/jobs
+      - /home/dlv/PycharmProjects/medallion-pipeline-ecommerce/spark:/opt/spark/app
       - *spark-jars
     command: scheduler
     networks:
@@ -123,6 +125,7 @@ services:
   # SPARK MASTER
   # =========================
   spark-master:
+    build: ../../spark
     image: apache/spark:3.5.8
     container_name: spark-master
     command: >
@@ -132,11 +135,14 @@ services:
       - "7077:7077"
       - "8081:8080"
     volumes:
+      - ../../spark:/opt/spark/app
       - ../../spark/jobs:/opt/spark/jobs
       - *spark-jars
       - ../../infra/hadoop:/opt/hadoop/etc/hadoop
     environment:
       - HADOOP_CONF_DIR=/opt/hadoop/etc/hadoop
+      - PYSPARK_PYTHON=python3
+      - PYSPARK_DRIVER_PYTHON=python3
     networks:
       - medallion-net
 
@@ -144,6 +150,7 @@ services:
   # SPARK WORKER
   # =========================
   spark-worker:
+    build: ../../spark
     image: apache/spark:3.5.8
     container_name: spark-worker
     depends_on:
@@ -153,6 +160,7 @@ services:
       org.apache.spark.deploy.worker.Worker
       spark://spark-master:7077
     volumes:
+      - ../../spark:/opt/spark/app
       - ../../spark/jobs:/opt/spark/jobs
       - *spark-jars
       - ../../infra/hadoop:/opt/hadoop/etc/hadoop
@@ -160,6 +168,8 @@ services:
       - HADOOP_CONF_DIR=/opt/hadoop/etc/hadoop
       - SPARK_WORKER_MEMORY=10g
       - SPARK_WORKER_CORES=8
+      - PYSPARK_PYTHON=python3
+      - PYSPARK_DRIVER_PYTHON=python3
     networks:
       - medallion-net
 

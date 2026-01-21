@@ -3,7 +3,7 @@ from airflow import DAG
 from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOperator
 
 DEFAULT_ARGS = {
-    "owner": "data-engineering",
+    "owner": "DlV",
     "depends_on_past": False,
     "retries": 1,
 }
@@ -20,12 +20,13 @@ TABELAS_ECOMMERCE = [
 ]
 
 with DAG(
-    dag_id="ecommerce_landing",
+    dag_id="landing_ecommerce_ingestion",
     description="Landing layer - ingestão completa do banco ecommerce via Spark",
     default_args=DEFAULT_ARGS,
     start_date=datetime(2026, 1, 1, tz="UTC"),
     schedule_interval=None,
     catchup=False,
+    max_active_tasks=4,
     tags=["ecommerce", "landing", "spark"],
 ) as dag:
 
@@ -35,7 +36,10 @@ with DAG(
             application="/opt/spark/jobs/landing/ecommerce_landing.py",
             conn_id="spark_standalone",
             deploy_mode="client",
-            application_args=["--table", table],
+            application_args=[
+                "--table", table,
+                "--execution_date", "{{ ds }}"
+            ],
             conf={
                 "spark.executor.memory": "2g",
                 "spark.executor.cores": "2",

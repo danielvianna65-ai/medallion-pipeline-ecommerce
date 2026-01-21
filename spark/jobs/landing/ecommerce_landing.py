@@ -1,9 +1,9 @@
 import argparse
-from datetime import date
 from pyspark.sql import SparkSession
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--table", required=True)
+parser.add_argument("--execution_date", required=True)
 args = parser.parse_args()
 
 spark = (
@@ -25,6 +25,7 @@ props = {
 }
 
 print(f"📥 Iniciando ingestão da tabela: {args.table}")
+print(f"📅 Execution date: {args.execution_date}")
 
 df = (
     spark.read
@@ -37,16 +38,17 @@ df = (
     .load()
 )
 
-dt = date.today().isoformat()
+output_path = (
+    f"hdfs://namenode:8020/data/landing/ecommerce/"
+    f"{args.table}/dt={args.execution_date}"
+)
 
 (
     df.write
-    .mode("append")
-    .parquet(
-        f"hdfs://namenode:8020/data/landing/ecommerce/{args.table}/dt={dt}"
-    )
+    .mode("overwrite")
+    .parquet(output_path)
 )
 
-print(f"✅ Tabela {args.table} gravada com sucesso no HDFS")
+print(f"✅ Tabela {args.table} gravada com sucesso em {output_path}")
 
 spark.stop()
