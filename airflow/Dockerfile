@@ -26,3 +26,10 @@ RUN pip install --no-cache-dir \
 # PySpark (VERSÃO EXATA DO CLUSTER)
 # -----------------------------
 RUN pip install --no-cache-dir pyspark==3.5.8
+
+# -----------------------------
+# Instala  o Delta Spark
+# -----------------------------
+RUN pip install delta-spark==3.2.0
+
+
