@@ -1,95 +1,124 @@
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, current_timestamp, lit, date_format
+import pyspark.sql.functions as F
+from delta.tables import DeltaTable
 
-# -----------------------------
-# Spark Session
-# -----------------------------
+# =========================
+# SPARK SESSION
+# =========================
+
 spark = (
     SparkSession.builder
-    .appName("TRUSTED - Estoque")
-    .enableHiveSupport()
-    .config(
-            "spark.sql.warehouse.dir",
-            "hdfs://namenode:8020/user/hive/warehouse"
-        )
+    .appName("trusted_estoque")
+    .config("spark.hadoop.fs.defaultFS", "hdfs://namenode:8020")
+    .config("spark.sql.extensions","io.delta.sql.DeltaSparkSessionExtension")
+    .config("spark.sql.catalog.spark_catalog","org.apache.spark.sql.delta.catalog.DeltaCatalog")
     .getOrCreate()
 )
 
-# -----------------------------
-# Paths
-# -----------------------------
-raw_path = "hdfs://namenode:8020/data/raw/ecommerce/estoque"
-trusted_path = "hdfs://namenode:8020/data/trusted/ecommerce/estoque"
+table = "estoque"
 
-# -----------------------------
-# Leitura RAW
-# -----------------------------
-df_raw = spark.read.parquet(raw_path)
+PRIMARY_KEY = "id_estoque"
+WATERMARK_COL = "data_transacao"
 
-# -----------------------------
-# Validações estruturais + negócio
-# -----------------------------
-df_valid = (
-    df_raw
-    .filter(col("id_estoque").isNotNull())
-    .filter(col("id_produto").isNotNull())
-    .filter(col("quantidade_disponivel").isNotNull())
-    .filter(col("quantidade_disponivel") >= 0)
-    .filter(col("data_atualizacao").isNotNull())
+raw_path = f"/data/02_raw/ecommerce/{table}"
+trusted_path = f"/data/03_trusted/ecommerce/{table}"
+
+# =========================
+# READ RAW
+# =========================
+
+df = spark.read.format("delta").load(raw_path)
+
+# =========================
+# CLEANING
+# =========================
+
+df_clean = df.select(
+
+    F.col("id_estoque").cast("int"),
+    F.col("id_produto").cast("int"),
+
+    # quantidade
+    F.col("quantidade_disponivel").cast("int"),
+
+    "data_transacao",
+    "dt",
+    "source_system",
+    "ingestion_ts"
 )
 
-# -----------------------------
-# Deduplicação
-# -----------------------------
-df_valid = df_valid.dropDuplicates(["id_estoque"])
+# =========================
+# DATA QUALITY
+# =========================
 
-# -----------------------------
-# Metadados Trusted + partição diária
-# -----------------------------
-df_trusted = (
-    df_valid
-    .withColumn("trusted_ts", current_timestamp())
-    .withColumn("trusted_version", lit(1))
-    .withColumn("dt", date_format(col("data_atualizacao"), "yyyy-MM-dd"))
+df_clean = (
+    df_clean
+
+    # quantidade válida (>= 0)
+    .withColumn(
+        "quantidade_valida",
+        F.col("quantidade_disponivel") >= 0
+    )
 )
 
-# -----------------------------
-# Escrita Trusted (ingestão diária)
-# -----------------------------
-spark.conf.set("spark.sql.sources.partitionOverwriteMode", "dynamic")
+# =========================
+# AUDITORIA
+# =========================
 
-(
-    df_trusted
-    .write
-    .mode("overwrite")
-    .partitionBy("dt")
-    .parquet(trusted_path)
+df_clean = df_clean.withColumn(
+    "processing_trusted",
+    F.current_timestamp()
 )
 
-# -----------------------------
-# Metastore
-# -----------------------------
-spark.sql("CREATE DATABASE IF NOT EXISTS trusted_ecommerce")
+# =========================
+# WRITE TRUSTED
+# =========================
 
-spark.sql("""
-CREATE TABLE IF NOT EXISTS trusted_ecommerce.estoque (
-    id_estoque INT,
-    id_produto INT,
-    quantidade_disponivel INT,
-    data_atualizacao TIMESTAMP,
-    ingestion_ts TIMESTAMP,
-    source_system STRING,
-    dt STRING,
-    trusted_ts TIMESTAMP,
-    trusted_version INT
+if not DeltaTable.isDeltaTable(spark, trusted_path):
+
+    print("[Trusted] Bootstrap inicial")
+
+    (
+        df_clean.write
+        .format("delta")
+        .mode("overwrite")
+        .partitionBy("dt")
+        .save(trusted_path)
+    )
+
+else:
+
+    print("[Trusted] Executando MERGE incremental")
+
+    print(
+        "[Trusted] Qtd registros antes do merge:",
+        spark.read.format("delta").load(trusted_path).count()
+    )
+
+    delta_table = DeltaTable.forPath(spark, trusted_path)
+
+    update_set = {c: f"source.{c}" for c in df_clean.columns}
+    insert_values = {c: f"source.{c}" for c in df_clean.columns}
+
+    (
+        delta_table.alias("target")
+        .merge(
+            df_clean.alias("source"),
+            f"target.{PRIMARY_KEY} = source.{PRIMARY_KEY}"
+        )
+        .whenMatchedUpdate(
+            condition=f"source.{WATERMARK_COL} > target.{WATERMARK_COL}",
+            set=update_set
+        )
+        .whenNotMatchedInsert(values=insert_values)
+        .execute()
+    )
+
+print("[Trusted] MERGE concluído")
+
+print(
+    "[Trusted] Qtd registros após o merge:",
+    spark.read.format("delta").load(trusted_path).count()
 )
-USING PARQUET
-PARTITIONED BY (dt)
-LOCATION 'hdfs://namenode:8020/data/trusted/ecommerce/estoque'
-""")
-
-spark.sql("MSCK REPAIR TABLE trusted_ecommerce.estoque")
-
-print("✅ TRUSTED estoque processada com sucesso")
 
 spark.stop()

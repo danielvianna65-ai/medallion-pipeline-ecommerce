@@ -1,0 +1,247 @@
+from pyspark.sql import SparkSession
+import pyspark.sql.functions as F
+from delta.tables import DeltaTable
+from pyspark.sql.window import Window
+
+# ======================================================
+# SPARK SESSION
+# ======================================================
+
+spark = (
+    SparkSession.builder
+    .appName("fato_vendas")
+    .config("spark.hadoop.fs.defaultFS", "hdfs://namenode:8020")
+    .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
+    .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
+    .getOrCreate()
+)
+
+# ======================================================
+# PATHS
+# ======================================================
+
+base = "/data/03_trusted/ecommerce"
+refined = "/data/04_refined/ecommerce"
+
+fato_path = f"{refined}/fato_vendas"
+
+# dimensões
+dim_cliente_path = f"{refined}/dim_cliente"
+dim_produto_path = f"{refined}/dim_produto"
+dim_pagamento_path = f"{refined}/dim_pagamento"
+dim_data_path = f"{refined}/dim_data"
+
+# ======================================================
+# READ TRUSTED
+# ======================================================
+
+itens = spark.read.format("delta").load(f"{base}/itens_pedido")
+
+w = Window.partitionBy("id_pedido").orderBy(
+    F.col("data_pagamento").desc(),
+    F.col("id_pagamento").desc()  # 🔥 desempate
+)
+
+pag = (
+    spark.read.format("delta").load(f"{base}/pagamentos")
+    .withColumn("rn", F.row_number().over(w))
+    .filter("rn = 1")
+    .drop("rn")
+)
+
+w_ped = Window.partitionBy("id_pedido").orderBy(
+    F.col("data_transacao").desc(),
+    F.col("ingestion_ts").desc()  # 🔥 desempate forte
+)
+
+ped = (
+    spark.read.format("delta").load(f"{base}/pedidos")
+    .withColumn("rn", F.row_number().over(w_ped))
+    .filter("rn = 1")
+    .drop("rn")
+)
+# ======================================================
+# READ DIMENSIONS
+# ======================================================
+
+dim_cliente = spark.read.format("delta").load(dim_cliente_path)
+dim_produto = spark.read.format("delta").load(dim_produto_path)
+dim_pagamento = spark.read.format("delta").load(dim_pagamento_path)
+dim_data = spark.read.format("delta").load(dim_data_path)
+
+# ======================================================
+# JOIN BASE (CONTROLADO)
+# ======================================================
+
+df = (
+    itens.alias("i")
+    .join(ped.alias("p"), "id_pedido")
+    .join(pag.alias("pg"), "id_pedido", "left")
+)
+
+df = df.select(
+    F.col("i.id_pedido"),
+    F.col("i.id_produto"),
+    F.col("i.id_item_pedido"),
+    F.col("p.id_cliente"),
+    F.col("pg.id_pagamento"),
+    F.col("p.data_transacao").alias("data_pedido"),
+    F.col("i.quantidade"),
+    F.col("i.preco_unitario").cast("decimal(12,2)").alias("preco_unitario")
+)
+df = df.withColumn(
+    "data_pedido",
+    F.to_date("data_pedido")
+)
+df = df.withColumn(
+    "dt_carga",
+    F.current_timestamp()
+)
+# ======================================================
+# JOIN DIMENSÕES
+# ======================================================
+
+# cliente (SCD2 simplificado - current)
+dim_cliente = dim_cliente.filter("is_current = true")
+
+df = df.join(
+    F.broadcast(dim_cliente.select("id_cliente", "sk_cliente")),
+    "id_cliente",
+    "left"
+)
+
+# produto
+df = df.join(
+    F.broadcast(dim_produto.select("id_produto", "sk_produto")),
+    "id_produto",
+    "left"
+)
+
+# pagamento
+df = df.join(
+    F.broadcast(dim_pagamento.select("id_pagamento", "sk_pagamento")),
+    "id_pagamento",
+    "left"
+)
+
+# data
+df = df.withColumn(
+    "sk_data_pedido",
+    F.date_format("data_pedido", "yyyyMMdd").cast("int")
+)
+erros = df.join(
+    dim_data.select("sk_data"),
+    df.sk_data_pedido == dim_data.sk_data,
+    "left_anti"
+).count()
+
+if erros > 0:
+    raise Exception(f"Erro de integridade na dim_data: {erros} registros inválidos")
+# ======================================================
+# DATA QUALITY
+# ======================================================
+
+df = df.filter(
+    F.col("sk_cliente").isNotNull() &
+    F.col("sk_produto").isNotNull() &
+    F.col("sk_pagamento").isNotNull() &
+    F.col("sk_data_pedido").isNotNull()
+)
+
+# ======================================================
+# MÉTRICAS
+# ======================================================
+
+df = df.withColumn(
+    "valor_bruto",
+    (F.col("quantidade") * F.col("preco_unitario")).cast("decimal(12,2)")
+)
+
+# ======================================================
+# SK + HASH
+# ======================================================
+
+df = df.withColumn(
+    "sk_venda",
+    F.abs(F.hash(
+        "id_pedido",
+        "id_item_pedido",
+        "id_produto"
+    )).cast("bigint")
+)
+
+# ======================================================
+# FINAL SELECT (SCHEMA LIMPO)docker
+# ======================================================
+
+df_final = df.select(
+    "sk_venda",
+    "sk_cliente",
+    "sk_produto",
+    "sk_pagamento",
+    "sk_data_pedido",
+    "id_pedido",
+    "quantidade",
+    "preco_unitario",
+    "valor_bruto",
+    "dt_carga"
+)
+# ======================================================
+# DATA QUALITY - DUPLICIDADE
+# ======================================================
+
+duplicados = df.groupBy("sk_venda").count().filter("count > 1")
+
+if duplicados.count() > 0:
+    print("[ERRO] Duplicidade de sk_venda detectada")
+    duplicados.show()
+    raise Exception("Duplicidade de chave na fato")
+
+# ======================================================
+# WRITE (UPSERT REAL)
+# ======================================================
+
+if not DeltaTable.isDeltaTable(spark, fato_path):
+
+    df_final.write \
+        .format("delta") \
+        .mode("overwrite") \
+        .save(fato_path)
+
+else:
+
+    delta = DeltaTable.forPath(spark, fato_path)
+
+    (
+        delta.alias("t")
+        .merge(df_final.alias("s"), "t.sk_venda = s.sk_venda")
+
+        .whenMatchedUpdate(
+            condition="""
+            NOT (t.sk_cliente <=> s.sk_cliente) OR
+            NOT (t.sk_produto <=> s.sk_produto) OR
+            NOT (t.sk_pagamento <=> s.sk_pagamento) OR
+            NOT (t.sk_data_pedido <=> s.sk_data_pedido) OR
+            NOT (t.quantidade <=> s.quantidade) OR
+            NOT (t.preco_unitario <=> s.preco_unitario) OR
+            NOT (t.valor_bruto <=> s.valor_bruto)
+            """,
+            set={
+                "sk_cliente": "s.sk_cliente",
+                "sk_produto": "s.sk_produto",
+                "sk_pagamento": "s.sk_pagamento",
+                "sk_data_pedido": "s.sk_data_pedido",
+                "quantidade": "s.quantidade",
+                "preco_unitario": "s.preco_unitario",
+                "valor_bruto": "s.valor_bruto",
+                "dt_carga": "s.dt_carga"
+            }
+        )
+
+        .whenNotMatchedInsertAll()
+        .execute()
+    )
+
+print("[FATO_VENDAS] OK")
+
+spark.stop()

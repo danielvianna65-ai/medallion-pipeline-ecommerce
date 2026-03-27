@@ -1,101 +1,141 @@
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, current_timestamp, lit, date_format
+import pyspark.sql.functions as F
+from delta.tables import DeltaTable
 
-# -----------------------------
-# Spark Session
-# -----------------------------
+# =========================
+# SPARK SESSION
+# =========================
+
 spark = (
     SparkSession.builder
-    .appName("TRUSTED - Pagamentos")
-    .enableHiveSupport()
-    .config(
-            "spark.sql.warehouse.dir",
-            "hdfs://namenode:8020/user/hive/warehouse"
-        )
+    .appName("trusted_pagamentos")
+    .config("spark.hadoop.fs.defaultFS", "hdfs://namenode:8020")
+    .config("spark.sql.extensions","io.delta.sql.DeltaSparkSessionExtension")
+    .config("spark.sql.catalog.spark_catalog","org.apache.spark.sql.delta.catalog.DeltaCatalog")
     .getOrCreate()
 )
 
-# -----------------------------
-# Paths
-# -----------------------------
-raw_path = "hdfs://namenode:8020/data/raw/ecommerce/pagamentos"
-trusted_path = "hdfs://namenode:8020/data/trusted/ecommerce/pagamentos"
+table = "pagamentos"
 
-# -----------------------------
-# Leitura RAW
-# -----------------------------
-df_raw = spark.read.parquet(raw_path)
+PRIMARY_KEY = "id_pagamento"
+WATERMARK_COL = "data_transacao"
 
-# -----------------------------
-# Validações estruturais + negócio
-# -----------------------------
-df_valid = (
-    df_raw
-    .filter(col("id_pagamento").isNotNull())
-    .filter(col("id_pedido").isNotNull())
-    .filter(col("metodo_pagamento").isNotNull())
-    .filter(col("status").isNotNull())
-    .filter(col("valor").isNotNull())
-    .filter(col("valor") > 0)
-    .filter(col("data_pagamento").isNotNull())
+raw_path = f"/data/02_raw/ecommerce/{table}"
+trusted_path = f"/data/03_trusted/ecommerce/{table}"
+
+# =========================
+# READ RAW
+# =========================
+
+df = spark.read.format("delta").load(raw_path)
+
+# =========================
+# CLEANING
+# =========================
+
+df_clean = df.select(
+
+    F.col("id_pagamento").cast("int"),
+    F.col("id_pedido").cast("int"),
+
+    # forma pagamento
+    F.lower(F.trim("forma_pagamento")).alias("forma_pagamento"),
+
+    # status pagamento
+    F.lower(F.trim("status_pagamento")).alias("status_pagamento"),
+
+    # datas
+    F.col("data_pagamento"),
+
+    # valor
+    F.col("valor_pago").cast("double"),
+
+    "data_transacao",
+    "dt",
+    "source_system",
+    "ingestion_ts"
 )
 
-# -----------------------------
-# Deduplicação
-# -----------------------------
-df_valid = df_valid.dropDuplicates(["id_pagamento"])
+# =========================
+# DATA QUALITY
+# =========================
 
-# -----------------------------
-# Padronização + metadados Trusted + partição diária
-# -----------------------------
-df_trusted = (
-    df_valid
-    .withColumnRenamed("status", "status_pagamento")
-    .withColumnRenamed("valor", "valor_pagamento")
-    .withColumn("trusted_ts", current_timestamp())
-    .withColumn("trusted_version", lit(1))
-    .withColumn("dt", date_format(col("data_pagamento"), "yyyy-MM-dd"))
+df_clean = (
+    df_clean
+
+    # valor válido
+    .withColumn(
+        "valor_valido",
+        F.col("valor_pago") >= 0
+    )
+
+    # status válido (exemplo básico)
+    .withColumn(
+        "status_valido",
+        F.col("status_pagamento").isin(
+            "aprovado", "recusado", "pendente", "cancelado"
+        )
+    )
 )
 
-# -----------------------------
-# Escrita Trusted (ingestão diária)
-# -----------------------------
-spark.conf.set("spark.sql.sources.partitionOverwriteMode", "dynamic")
+# =========================
+# AUDITORIA
+# =========================
 
-(
-    df_trusted
-    .write
-    .mode("overwrite")
-    .partitionBy("dt")
-    .parquet(trusted_path)
+df_clean = df_clean.withColumn(
+    "processing_trusted",
+    F.current_timestamp()
 )
 
-# -----------------------------
-# Metastore
-# -----------------------------
-spark.sql("CREATE DATABASE IF NOT EXISTS trusted_ecommerce")
+# =========================
+# WRITE TRUSTED
+# =========================
 
-spark.sql("""
-CREATE TABLE IF NOT EXISTS trusted_ecommerce.pagamentos (
-    id_pagamento INT,
-    id_pedido INT,
-    metodo_pagamento STRING,
-    status_pagamento STRING,
-    valor_pagamento DECIMAL(12,2),
-    data_pagamento TIMESTAMP,
-    ingestion_ts TIMESTAMP,
-    source_system STRING,
-    dt STRING,
-    trusted_ts TIMESTAMP,
-    trusted_version INT
+if not DeltaTable.isDeltaTable(spark, trusted_path):
+
+    print("[Trusted] Bootstrap inicial")
+
+    (
+        df_clean.write
+        .format("delta")
+        .mode("overwrite")
+        .partitionBy("dt")
+        .save(trusted_path)
+    )
+
+else:
+
+    print("[Trusted] Executando MERGE incremental")
+
+    print(
+        "[Trusted] Qtd registros antes do merge:",
+        spark.read.format("delta").load(trusted_path).count()
+    )
+
+    delta_table = DeltaTable.forPath(spark, trusted_path)
+
+    update_set = {c: f"source.{c}" for c in df_clean.columns}
+    insert_values = {c: f"source.{c}" for c in df_clean.columns}
+
+    (
+        delta_table.alias("target")
+        .merge(
+            df_clean.alias("source"),
+            f"target.{PRIMARY_KEY} = source.{PRIMARY_KEY}"
+        )
+        .whenMatchedUpdate(
+            condition=f"source.{WATERMARK_COL} > target.{WATERMARK_COL}",
+            set=update_set
+        )
+        .whenNotMatchedInsert(values=insert_values)
+        .execute()
+    )
+
+print("[Trusted] MERGE concluído")
+
+print(
+    "[Trusted] Qtd registros após o merge:",
+    spark.read.format("delta").load(trusted_path).count()
 )
-USING PARQUET
-PARTITIONED BY (dt)
-LOCATION 'hdfs://namenode:8020/data/trusted/ecommerce/pagamentos'
-""")
-
-spark.sql("MSCK REPAIR TABLE trusted_ecommerce.pagamentos")
-
-print("✅ TRUSTED pagamentos processada com sucesso")
 
 spark.stop()

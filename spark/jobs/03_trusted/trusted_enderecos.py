@@ -1,114 +1,175 @@
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, trim, current_timestamp, lit
+import pyspark.sql.functions as F
+from delta.tables import DeltaTable
 
-# -----------------------------
-# Spark Session
-# -----------------------------
+# =========================
+# SPARK SESSION
+# =========================
+
 spark = (
     SparkSession.builder
-    .appName("Trusted - Endereços (Snapshot)")
-    .enableHiveSupport()
-    .config(
-            "spark.sql.warehouse.dir",
-            "hdfs://namenode:8020/user/hive/warehouse"
-        )
+    .appName("trusted_enderecos")
+    .config("spark.hadoop.fs.defaultFS", "hdfs://namenode:8020")
+    .config("spark.sql.extensions","io.delta.sql.DeltaSparkSessionExtension")
+    .config("spark.sql.catalog.spark_catalog","org.apache.spark.sql.delta.catalog.DeltaCatalog")
     .getOrCreate()
 )
 
-# -----------------------------
-# HDFS / FileSystem
-# -----------------------------
-hadoop_conf = spark._jsc.hadoopConfiguration()
-hadoop_conf.set("fs.defaultFS", "hdfs://namenode:8020")
+table = "enderecos"
 
-fs = spark._jvm.org.apache.hadoop.fs.FileSystem.get(hadoop_conf)
+PRIMARY_KEY = "id_endereco"
+WATERMARK_COL = "data_transacao"
 
-raw_base = "/data/raw/ecommerce/enderecos"
-trusted_base = "/data/trusted/ecommerce/enderecos"
+raw_path = f"/data/02_raw/ecommerce/{table}"
+trusted_path = f"/data/03_trusted/ecommerce/{table}"
 
-raw_path = spark._jvm.org.apache.hadoop.fs.Path(raw_base)
-trusted_path = spark._jvm.org.apache.hadoop.fs.Path(trusted_base)
+# =========================
+# READ RAW
+# =========================
 
-# -----------------------------
-# Verificação RAW
-# -----------------------------
-if not fs.exists(raw_path):
-    print("⚠️ RAW endereços não encontrada.")
-    spark.stop()
-    exit(0)
+df = spark.read.format("delta").load(raw_path)
 
-# -----------------------------
-# Descobrir última dt disponível
-# -----------------------------
-status = fs.listStatus(raw_path)
-datas = sorted([
-    p.getPath().getName().replace("dt=", "")
-    for p in status if p.isDirectory() and p.getPath().getName().startswith("dt=")
-])
+# =========================
+# CLEANING
+# =========================
 
-execution_date = datas[-1]
-print(f"📅 Snapshot endereços dt={execution_date}")
+df_clean = df.select(
 
-# -----------------------------
-# Leitura RAW (somente última dt)
-# -----------------------------
-df_raw = spark.read.parquet(f"{raw_base}/dt={execution_date}")
+    F.col("id_endereco").cast("int"),
+    F.col("id_cliente").cast("int"),
 
-# -----------------------------
-# Validações e normalização
-# -----------------------------
-df_trusted = (
-    df_raw
-    .filter(col("id_endereco").isNotNull())
-    .filter(col("id_cliente").isNotNull())
-    .filter(col("cidade").isNotNull())
-    .filter(col("estado").isNotNull())
-    .withColumn("cidade", trim(col("cidade")))
-    .withColumn("estado", trim(col("estado")))
-    .dropDuplicates(["id_endereco"])
-    .withColumn("trusted_processed_ts", current_timestamp())
-    .withColumn("trusted_version", lit(1))
+    # ---------------------
+    # LOGRADOURO
+    # ---------------------
+    F.initcap(
+        F.regexp_replace(
+            F.trim("logradouro"),
+            "\\s+",
+            " "
+        )
+    ).alias("logradouro"),
+
+    # ---------------------
+    # NUMERO
+    # ---------------------
+    F.trim("numero").alias("numero"),
+
+    # ---------------------
+    # BAIRRO
+    # ---------------------
+    F.initcap(
+        F.regexp_replace(
+            F.trim("bairro"),
+            "\\s+",
+            " "
+        )
+    ).alias("bairro"),
+
+    # ---------------------
+    # CIDADE
+    # ---------------------
+    F.initcap(
+        F.regexp_replace(
+            F.trim("cidade"),
+            "\\s+",
+            " "
+        )
+    ).alias("cidade"),
+
+    # ---------------------
+    # ESTADO (UF)
+    # ---------------------
+    F.upper(F.trim("estado")).alias("estado"),
+
+    # ---------------------
+    # CEP
+    # ---------------------
+    F.regexp_replace("cep", "[^0-9]", "").alias("cep"),
+
+    "data_transacao",
+    "dt",
+    "source_system",
+    "ingestion_ts"
 )
 
-# -----------------------------
-# LIMPEZA TOTAL (snapshot)
-# -----------------------------
-if fs.exists(trusted_path):
-    fs.delete(trusted_path, True)
+# =========================
+# DATA QUALITY
+# =========================
 
-# -----------------------------
-# Escrita Trusted (overwrite total)
-# -----------------------------
-(
-    df_trusted.write
-    .mode("overwrite")
-    .parquet(trusted_base)
+df_clean = (
+    df_clean
+
+    # CEP válido (8 dígitos)
+    .withColumn(
+        "cep_valido",
+        F.length("cep") == 8
+    )
+
+    # estado válido (2 letras)
+    .withColumn(
+        "estado_valido",
+        F.length("estado") == 2
+    )
 )
-# -----------------------------
-# Metastore (SEM PARTIÇÃO)
-# -----------------------------
-spark.sql("CREATE DATABASE IF NOT EXISTS trusted_ecommerce")
 
-spark.sql("""
-CREATE TABLE IF NOT EXISTS trusted_ecommerce.enderecos (
-    id_endereco INT,
-    id_cliente INT,
-    logradouro STRING,
-    numero STRING,
-    complemento STRING,
-    bairro STRING,
-    cidade STRING,
-    estado STRING,
-    cep STRING,
-    ingestion_ts TIMESTAMP,
-    source_system STRING,
-    trusted_processed_ts TIMESTAMP,
-    trusted_version INT
+# =========================
+# AUDITORIA
+# =========================
+
+df_clean = df_clean.withColumn(
+    "processing_trusted",
+    F.current_timestamp()
 )
-USING PARQUET
-LOCATION '/data/trusted/ecommerce/enderecos'
 
-""")
+# =========================
+# WRITE TRUSTED
+# =========================
 
-print("✅ Trusted endereços (snapshot) OK")
+if not DeltaTable.isDeltaTable(spark, trusted_path):
+
+    print("[Trusted] Bootstrap inicial")
+
+    (
+        df_clean.write
+        .format("delta")
+        .mode("overwrite")
+        .partitionBy("dt")
+        .save(trusted_path)
+    )
+
+else:
+
+    print("[Trusted] Executando MERGE incremental")
+
+    print(
+        "[Trusted] Qtd registros antes do merge:",
+        spark.read.format("delta").load(trusted_path).count()
+    )
+
+    delta_table = DeltaTable.forPath(spark, trusted_path)
+
+    update_set = {c: f"source.{c}" for c in df_clean.columns}
+    insert_values = {c: f"source.{c}" for c in df_clean.columns}
+
+    (
+        delta_table.alias("target")
+        .merge(
+            df_clean.alias("source"),
+            f"target.{PRIMARY_KEY} = source.{PRIMARY_KEY}"
+        )
+        .whenMatchedUpdate(
+            condition=f"source.{WATERMARK_COL} > target.{WATERMARK_COL}",
+            set=update_set
+        )
+        .whenNotMatchedInsert(values=insert_values)
+        .execute()
+    )
+
+print("[Trusted] MERGE concluído")
+
+print(
+    "[Trusted] Qtd registros após o merge:",
+    spark.read.format("delta").load(trusted_path).count()
+)
+
 spark.stop()

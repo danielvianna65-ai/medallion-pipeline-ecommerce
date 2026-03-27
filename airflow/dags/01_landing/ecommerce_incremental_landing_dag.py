@@ -1,15 +1,14 @@
-from pendulum import datetime, timezone
+# ======================================================
+# IMPORTS
+# ======================================================
+import pendulum
 from airflow import DAG
+from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOperator
 from datetime import timedelta
 
 # =========================================================
-# Timezone local
-# =========================================================
-LOCAL_TZ = timezone("America/Sao_Paulo")
-
-# =========================================================
-# Tabelas do domínio ecommerce
+# tables ecommerce
 # =========================================================
 TABLES_ECOMMERCE = [
     "categorias",
@@ -36,20 +35,21 @@ DEFAULT_ARGS = {
 # DAG
 # =========================================================
 with DAG(
-    dag_id="landing_incremental_ecommerce",
+    dag_id="01_landing_incremental_ecommerce",
     description="Landing layer incremental - ingestão universal via watermark",
     default_args=DEFAULT_ARGS,
-    start_date=datetime(2026, 1, 1, tz=LOCAL_TZ),
+    start_date=pendulum.datetime(2026, 1, 1, tz="America/Sao_Paulo"),
     schedule=None,
     catchup=False,
     max_active_tasks=4,
+    max_active_runs=1,
     tags=["ecommerce", "landing", "incremental", "spark"],
 ) as dag:
 
-    raw_tasks = []
+    landing_tasks = []
 
     # =====================================================
-    # Loop de criação das tasks (1 job por tabela)
+    # Loop tasks (1 job por tabela)
     # =====================================================
     for table in TABLES_ECOMMERCE:
 
@@ -86,4 +86,15 @@ with DAG(
             verbose=True,
         )
 
-        raw_tasks.append(task)
+        landing_tasks.append(task)
+    # ===============================================
+    # Trigger próxima DAG (RAW)
+    # ===============================================
+    trigger_raw = TriggerDagRunOperator(
+        task_id="trigger_raw_layer",
+        trigger_dag_id="02_raw_delta_merge_ecommerce",
+        wait_for_completion=False
+    )
+
+    # Todas as tabelas precisam terminar
+    landing_tasks >> trigger_raw

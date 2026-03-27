@@ -1,117 +1,116 @@
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, trim, current_timestamp, lit
+import pyspark.sql.functions as F
+from delta.tables import DeltaTable
 
-# -----------------------------
-# Spark Session
-# -----------------------------
+# =========================
+# SPARK SESSION
+# =========================
+
 spark = (
     SparkSession.builder
-    .appName("Trusted - Categorias (Snapshot)")
-    .enableHiveSupport()
-    .config(
-            "spark.sql.warehouse.dir",
-            "hdfs://namenode:8020/user/hive/warehouse"
-        )
+    .appName("trusted_categorias")
+    .config("spark.hadoop.fs.defaultFS", "hdfs://namenode:8020")
+    .config("spark.sql.extensions","io.delta.sql.DeltaSparkSessionExtension")
+    .config("spark.sql.catalog.spark_catalog","org.apache.spark.sql.delta.catalog.DeltaCatalog")
     .getOrCreate()
 )
 
-# -----------------------------
-# HDFS / FileSystem
-# -----------------------------
-hadoop_conf = spark._jsc.hadoopConfiguration()
-hadoop_conf.set("fs.defaultFS", "hdfs://namenode:8020")
+table = "categorias"
 
-fs = spark._jvm.org.apache.hadoop.fs.FileSystem.get(hadoop_conf)
+PRIMARY_KEY = "id_categoria"
+WATERMARK_COL = "data_transacao"
 
-raw_base = "/data/raw/ecommerce/categorias"
-trusted_base = "/data/trusted/ecommerce/categorias"
+raw_path = f"/data/02_raw/ecommerce/{table}"
+trusted_path = f"/data/03_trusted/ecommerce/{table}"
 
-raw_path = spark._jvm.org.apache.hadoop.fs.Path(raw_base)
-trusted_path = spark._jvm.org.apache.hadoop.fs.Path(trusted_base)
+# =========================
+# READ RAW
+# =========================
 
-# -----------------------------
-# Verificação RAW
-# -----------------------------
-if not fs.exists(raw_path):
-    print("⚠️ RAW categorias não encontrada. Encerrando job.")
-    spark.stop()
-    exit(0)
+df = spark.read.format("delta").load(raw_path)
 
-# -----------------------------
-# Descobrir última dt disponível
-# -----------------------------
-status = fs.listStatus(raw_path)
+# =========================
+# CLEANING
+# =========================
 
-datas = sorted([
-    p.getPath().getName().replace("dt=", "")
-    for p in status
-    if p.isDirectory() and p.getPath().getName().startswith("dt=")
-])
+df_clean = df.select(
 
-if not datas:
-    print("⚠️ Nenhuma partição dt encontrada na RAW.")
-    spark.stop()
-    exit(0)
+    F.col("id_categoria").cast("int"),
 
-execution_date = datas[-1]
+    F.initcap(
+        F.regexp_replace(
+            F.trim("nome_categoria"),
+            "\\s+",
+            " "
+        )
+    ).alias("nome_categoria"),
 
-print(f"📅 Processando snapshot da dt={execution_date}")
+    F.trim("descricao").alias("descricao"),
 
-# -----------------------------
-# Leitura RAW (somente última dt)
-# -----------------------------
-df_raw = spark.read.parquet(
-    f"{raw_base}/dt={execution_date}"
+    "data_transacao",
+    "dt",
+    "source_system",
+    "ingestion_ts"
 )
 
-# -----------------------------
-# Validações e normalização
-# -----------------------------
-df_trusted = (
-    df_raw
-    .filter(col("id_categoria").isNotNull())
-    .filter(col("nome_categoria").isNotNull())
-    .filter(trim(col("nome_categoria")) != "")
-    .withColumn("nome_categoria", trim(col("nome_categoria")))
-    .dropDuplicates(["id_categoria"])
-    .withColumn("trusted_processed_ts", current_timestamp())
-    .withColumn("trusted_version", lit(1))
+# =========================
+# AUDITORIA
+# =========================
+
+df_clean = df_clean.withColumn(
+    "processing_trusted",
+    F.current_timestamp()
 )
 
-# -----------------------------
-# LIMPEZA TOTAL (snapshot)
-# -----------------------------
-if fs.exists(trusted_path):
-    fs.delete(trusted_path, True)
+# =========================
+# WRITE TRUSTED
+# =========================
 
-# -----------------------------
-# Escrita Trusted (overwrite total)
-# -----------------------------
-(
-    df_trusted.write
-    .mode("overwrite")
-    .parquet(trusted_base)
+if not DeltaTable.isDeltaTable(spark, trusted_path):
+
+    print("[Trusted] Bootstrap inicial")
+
+    (
+        df_clean.write
+        .format("delta")
+        .mode("overwrite")
+        .partitionBy("dt")
+        .save(trusted_path)
+    )
+
+else:
+
+    print("[Trusted] Executando MERGE incremental")
+
+    print(
+        "[Trusted] Qtd registros antes do merge:",
+        spark.read.format("delta").load(trusted_path).count()
+    )
+
+    delta_table = DeltaTable.forPath(spark, trusted_path)
+
+    update_set = {c: f"source.{c}" for c in df_clean.columns}
+    insert_values = {c: f"source.{c}" for c in df_clean.columns}
+
+    (
+        delta_table.alias("target")
+        .merge(
+            df_clean.alias("source"),
+            f"target.{PRIMARY_KEY} = source.{PRIMARY_KEY}"
+        )
+        .whenMatchedUpdate(
+            condition=f"source.{WATERMARK_COL} > target.{WATERMARK_COL}",
+            set=update_set
+        )
+        .whenNotMatchedInsert(values=insert_values)
+        .execute()
+    )
+
+print("[Trusted] MERGE concluído")
+
+print(
+    "[Trusted] Qtd registros após o merge:",
+    spark.read.format("delta").load(trusted_path).count()
 )
-
-# -----------------------------
-# Metastore (SEM PARTIÇÃO)
-# -----------------------------
-spark.sql("CREATE DATABASE IF NOT EXISTS trusted_ecommerce")
-
-spark.sql("""
-CREATE TABLE IF NOT EXISTS trusted_ecommerce.categorias (
-    id_categoria INT,
-    nome_categoria STRING,
-    descricao STRING,
-    ingestion_ts TIMESTAMP,
-    source_system STRING,
-    trusted_processed_ts TIMESTAMP,
-    trusted_version INT
-)
-USING PARQUET
-LOCATION '/data/trusted/ecommerce/categorias'
-""")
-
-print("✅ TRUSTED categorias (snapshot) processada com sucesso")
 
 spark.stop()

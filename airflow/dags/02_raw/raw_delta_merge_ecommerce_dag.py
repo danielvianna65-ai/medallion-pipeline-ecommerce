@@ -1,12 +1,10 @@
-from pendulum import datetime, timezone
+import pendulum
 from airflow import DAG
+from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOperator
 from datetime import timedelta
 
-# =========================================================
-# Timezone local
-# =========================================================
-LOCAL_TZ = timezone("America/Sao_Paulo")
+
 
 # =========================================================
 # Tabelas do domínio ecommerce
@@ -36,13 +34,14 @@ DEFAULT_ARGS = {
 # DAG
 # =========================================================
 with DAG(
-    dag_id="raw_delta_merge_ecommerce",
+    dag_id="02_raw_delta_merge_ecommerce",
     description="Raw layer marge - processamento incremental via Spark com Delta Lake (MERGE INTO).",
     default_args=DEFAULT_ARGS,
-    start_date=datetime(2026, 1, 1, tz=LOCAL_TZ),
+    start_date=pendulum.datetime(2026, 1, 1, tz="America/Sao_Paulo"),
     schedule=None,
     catchup=False,
     max_active_tasks=4,
+    max_active_runs=1,
     tags=["ecommerce", "raw", "delta", "merge", "spark"],
 ) as dag:
 
@@ -96,3 +95,14 @@ with DAG(
         )
 
         raw_tasks.append(task)
+    # ===============================================
+    # Trigger próxima DAG (RAW)
+    # ===============================================
+    trigger_trusted = TriggerDagRunOperator(
+        task_id="trigger_trusted_ecommerce",
+        trigger_dag_id="03_trusted_ecommerce",
+        wait_for_completion=False
+    )
+
+    # Todas as tabelas precisam terminar
+    raw_tasks >> trigger_trusted

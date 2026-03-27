@@ -1,5 +1,5 @@
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, lit, max as spark_max
+from pyspark.sql.functions import col, lit, max as spark_max, to_date
 import argparse
 
 # ==========================
@@ -15,6 +15,9 @@ parser.add_argument("--jdbc_user", required=True)
 parser.add_argument("--jdbc_password", required=True)
 parser.add_argument("--execution_date", required=True)
 
+# =====================================================
+# Paths
+# =====================================================
 args = parser.parse_args()
 
 table = args.table
@@ -99,22 +102,15 @@ if df_new.rdd.isEmpty():
 # ==========================
 # 5) Adicionar partição dt
 # ==========================
-df_new = df_new.withColumn("dt", lit(execution_date))
+df_new = df_new.withColumn(
+    "dt",
+    to_date(col(watermark_col))
+)
 
 # =========================================================
-# 6) deduplicação + compactação automática
+# 6) deduplicação
 # =========================================================
-
-df_new = df_new.dropDuplicates().cache()
-row_count = df_new.count()
-print(f"[INFO] Linhas novas: {row_count}")
-
-if row_count < 50000:
-    print("[INFO] Compactação leve → coalesce(1)")
-    df_new = df_new.coalesce(1)
-else:
-    print("[INFO] Compactação distribuída → repartition(4)")
-    df_new = df_new.repartition(4)
+df_new = df_new.dropDuplicates()
 
 # ==========================
 # 7) Escrever incremental na LANDING

@@ -1,118 +1,145 @@
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, lit, current_timestamp, date_format
+import pyspark.sql.functions as F
+from delta.tables import DeltaTable
 
-# -----------------------------
-# Spark Session
-# -----------------------------
+# =========================
+# SPARK SESSION
+# =========================
+
 spark = (
     SparkSession.builder
-    .appName("trusted - Pedidos")
-    .enableHiveSupport()
-    .config(
-            "spark.sql.warehouse.dir",
-            "hdfs://namenode:8020/user/hive/warehouse"
-        )
+    .appName("trusted_pedidos")
+    .config("spark.hadoop.fs.defaultFS", "hdfs://namenode:8020")
+    .config("spark.sql.extensions","io.delta.sql.DeltaSparkSessionExtension")
+    .config("spark.sql.catalog.spark_catalog","org.apache.spark.sql.delta.catalog.DeltaCatalog")
     .getOrCreate()
 )
 
-# -----------------------------
-# Paths
-# -----------------------------
-raw_pedidos_path = "hdfs://namenode:8020/data/raw/ecommerce/pedidos"
-trusted_pedidos_path = "hdfs://namenode:8020/data/trusted/ecommerce/pedidos"
-trusted_clientes_path = "hdfs://namenode:8020/data/trusted/ecommerce/clientes"
+table = "pedidos"
 
-# -----------------------------
-# Leitura RAW
-# -----------------------------
-df_pedidos_raw = spark.read.parquet(raw_pedidos_path)
-df_clientes = spark.read.parquet(trusted_clientes_path).select("id_cliente").dropDuplicates()
+PRIMARY_KEY = "id_pedido"
+WATERMARK_COL = "data_transacao"
 
-# -----------------------------
-# Validações estruturais
-# -----------------------------
-df_valid = (
-    df_pedidos_raw
-    .filter(col("id_pedido").isNotNull())
-    .filter(col("id_cliente").isNotNull())
-    .filter(col("data_pedido").isNotNull())
+raw_path = f"/data/02_raw/ecommerce/{table}"
+trusted_path = f"/data/03_trusted/ecommerce/{table}"
+
+# =========================
+# READ RAW
+# =========================
+
+df = spark.read.format("delta").load(raw_path)
+
+# =========================
+# CLEANING
+# =========================
+
+df_clean = df.select(
+
+    F.col("id_pedido").cast("int"),
+    F.col("id_cliente").cast("int"),
+    F.col("id_endereco").cast("int"),
+
+    # datas
+    F.col("data_pedido"),
+
+    # status
+    F.lower(F.trim("status_pedido")).alias("status_pedido"),
+
+    # valor
+    F.col("valor_total").cast("double"),
+
+    "data_transacao",
+    "dt",
+    "source_system",
+    "ingestion_ts"
 )
 
-# -----------------------------
-# Validações de negócio
-# -----------------------------
-df_valid = (
-    df_valid
-    .filter(col("valor_total") > 0)
-    .filter(col("status_pedido").isin(
-        "CRIADO", "PAGO", "CANCELADO", "ENVIADO"
-    ))
-)
+# =========================
+# DATA QUALITY
+# =========================
 
-# -----------------------------
-# Deduplicação
-# -----------------------------
-df_valid = df_valid.dropDuplicates(["id_pedido"])
+df_clean = (
+    df_clean
 
-# -----------------------------
-# Integridade referencial
-# -----------------------------
-df_valid = (
-    df_valid
-    .join(df_clientes, on="id_cliente", how="inner")
-)
+    # valor válido
+    .withColumn(
+        "valor_valido",
+        F.col("valor_total") >= 0
+    )
 
-# -----------------------------
-# Metadados Silver
-# -----------------------------
-df_trusted = (
-    df_valid
-    .withColumn("trusted_ts", current_timestamp())
-    .withColumn("trusted_version", lit(1))
-    .withColumn("dt",
-    date_format(col("data_pedido"), "yyyy-MM-dd")
+    # status válido
+    .withColumn(
+        "status_valido",
+        F.col("status_pedido").isin(
+            "criado", "pago", "cancelado", "enviado", "entregue"
+        )
+    )
+
+    # data_pedido válida
+    .withColumn(
+        "data_pedido_valida",
+        F.col("data_pedido").isNotNull()
     )
 )
 
-# -----------------------------
-# Escrita Silver
-# -----------------------------
-spark.conf.set("spark.sql.sources.partitionOverwriteMode", "dynamic")
+# =========================
+# AUDITORIA
+# =========================
 
-(
-    df_trusted
-    .write
-    .mode("overwrite")
-    .partitionBy("dt")
-    .parquet(trusted_pedidos_path)
+df_clean = df_clean.withColumn(
+    "processing_trusted",
+    F.current_timestamp()
 )
 
-# -----------------------------
-# Metastore
-# -----------------------------
-spark.sql("CREATE DATABASE IF NOT EXISTS trusted_ecommerce")
+# =========================
+# WRITE TRUSTED
+# =========================
 
-spark.sql("""
-CREATE TABLE IF NOT EXISTS trusted_ecommerce.pedidos (
-    id_pedido INT,
-    id_cliente INT,
-    id_endereco INT,
-    data_pedido TIMESTAMP,
-    status_pedido STRING,
-    valor_total DECIMAL(12,2),
-    ingestion_ts TIMESTAMP,
-    source_system STRING,
-    dt STRING,
-    trusted_ts TIMESTAMP,
-    trusted_version INT
+if not DeltaTable.isDeltaTable(spark, trusted_path):
+
+    print("[Trusted] Bootstrap inicial")
+
+    (
+        df_clean.write
+        .format("delta")
+        .mode("overwrite")
+        .partitionBy("dt")
+        .save(trusted_path)
+    )
+
+else:
+
+    print("[Trusted] Executando MERGE incremental")
+
+    print(
+        "[Trusted] Qtd registros antes do merge:",
+        spark.read.format("delta").load(trusted_path).count()
+    )
+
+    delta_table = DeltaTable.forPath(spark, trusted_path)
+
+    update_set = {c: f"source.{c}" for c in df_clean.columns}
+    insert_values = {c: f"source.{c}" for c in df_clean.columns}
+
+    (
+        delta_table.alias("target")
+        .merge(
+            df_clean.alias("source"),
+            f"target.{PRIMARY_KEY} = source.{PRIMARY_KEY}"
+        )
+        .whenMatchedUpdate(
+            condition=f"source.{WATERMARK_COL} > target.{WATERMARK_COL}",
+            set=update_set
+        )
+        .whenNotMatchedInsert(values=insert_values)
+        .execute()
+    )
+
+print("[Trusted] MERGE concluído")
+
+print(
+    "[Trusted] Qtd registros após o merge:",
+    spark.read.format("delta").load(trusted_path).count()
 )
-USING PARQUET
-PARTITIONED BY (dt)
-LOCATION 'hdfs://namenode:8020/data/trusted/ecommerce/pedidos'
-""")
-
-spark.sql("MSCK REPAIR TABLE trusted_ecommerce.pedidos")
-
-print("✅ Trusted pedidos processada com sucesso")
 
 spark.stop()

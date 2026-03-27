@@ -18,26 +18,26 @@ args = parser.parse_args()
 # =====================================================
 # 🔥 CONFIGURAR POR TABELA
 # =====================================================
-TABELA = "pedidos"
+TABLE = "pedidos"
 PRIMARY_KEY = "id_pedido"
 WATERMARK_COL = "data_transacao"
 
-landing_path = f"{args.landing_base}/{TABELA}"
-raw_path = f"{args.raw_base}/{TABELA}"
+landing_path = f"{args.landing_base}/{TABLE}"
+raw_path = f"{args.raw_base}/{TABLE}"
 
 # =====================================================
 # Spark Session Delta
 # =====================================================
 spark = (
     SparkSession.builder
-    .appName(f"raw_incremental_{TABELA}")
+    .appName(f"raw_incremental_{TABLE}")
     .config("spark.hadoop.fs.defaultFS", "hdfs://namenode:8020")
     .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
     .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
     .getOrCreate()
 )
 
-print(f"[RAW] Tabela: {TABELA}")
+print(f"[RAW] Tabela: {TABLE}")
 print(f"[RAW] Execution date: {args.execution_date}")
 
 # =====================================================
@@ -147,12 +147,18 @@ if not DeltaTable.isDeltaTable(spark, raw_path):
         df_inc.write
         .format("delta")
         .mode("overwrite")
+        .partitionBy("dt")
         .save(raw_path)
     )
 
 else:
 
     print("[RAW] Executando MERGE incremental (safe merge)")
+
+    df_inc.printSchema()
+
+    print("[RAW] Qtd registros antes do merge:",
+          spark.read.format("delta").load(raw_path).count())
 
     delta_table = DeltaTable.forPath(spark, raw_path)
 
@@ -174,4 +180,9 @@ else:
     )
 
 print("[RAW] MERGE concluído.")
+
+print("[RAW]Qtd registros após o merge:",
+      spark.read.format("delta").load(raw_path).count()
+)
+
 spark.stop()

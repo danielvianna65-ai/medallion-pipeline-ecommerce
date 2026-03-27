@@ -53,6 +53,8 @@ services:
       AIRFLOW__WEBSERVER__SECRET_KEY: "super-secret-static-key"
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow-db:5432/airflow
       AIRFLOW__CORE__LOAD_DEFAULT_CONNECTIONS: "False"
+      AIRFLOW__CORE__DEFAULT_TIMEZONE: America/Sao_Paulo
+      TZ: America/Sao_Paulo
     volumes:
       - ../../airflow/dags:/opt/airflow/dags
       - ../../airflow/logs:/opt/airflow/logs
@@ -80,6 +82,8 @@ services:
       AIRFLOW__CORE__FERNET_KEY: "Yxkq3Y6j9mJpZ2v8L8zJ8Yb0K0Yz5yGxF5w3R2Q1abc="
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow-db:5432/airflow
       AIRFLOW__CORE__LOAD_DEFAULT_CONNECTIONS: "False"
+      AIRFLOW__CORE__DEFAULT_TIMEZONE: America/Sao_Paulo
+      TZ: America/Sao_Paulo
     volumes:
       - ../../airflow/dags:/opt/airflow/dags
       - ../../airflow/logs:/opt/airflow/logs
@@ -103,6 +107,7 @@ services:
       - CLUSTER_NAME=medallion
       - CORE_CONF_fs_defaultFS=hdfs://namenode:8020
       - HDFS_CONF_dfs_replication=1
+      - TZ=America/Sao_Paulo
     volumes:
       - namenode-data:/hadoop/dfs/name
     networks:
@@ -119,6 +124,7 @@ services:
     environment:
       - CORE_CONF_fs_defaultFS=hdfs://namenode:8020
       - HDFS_CONF_dfs_replication=1
+      - TZ=America/Sao_Paulo
     volumes:
       - datanode-data:/hadoop/dfs/data
     networks:
@@ -146,6 +152,8 @@ services:
       - HADOOP_CONF_DIR=/opt/hadoop/etc/hadoop
       - PYSPARK_PYTHON=python3
       - PYSPARK_DRIVER_PYTHON=python3
+      - TZ=America/Sao_Paulo
+      - JAVA_TOOL_OPTIONS=-Duser.timezone=America/Sao_Paulo
     networks:
       - medallion-net
 
@@ -173,6 +181,8 @@ services:
       - SPARK_WORKER_CORES=8
       - PYSPARK_PYTHON=python3
       - PYSPARK_DRIVER_PYTHON=python3
+      - TZ=America/Sao_Paulo
+      - JAVA_TOOL_OPTIONS=-Duser.timezone=America/Sao_Paulo
     networks:
       - medallion-net
 
