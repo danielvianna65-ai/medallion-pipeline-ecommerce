@@ -94,7 +94,7 @@ flowchart LR
 - Enriquecimento de dados
 
 ## 🧩 Modelo Dimensional
-![Modelo Dimensional](docs/modelo_dimencional.png)
+![Modelo Dimensional](docs/modelo_dimensional.png)
 
 #### Tabelas:
 
