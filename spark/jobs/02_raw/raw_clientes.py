@@ -1,29 +1,26 @@
+# =====================================================
+# IMPORTS
+# =====================================================
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import current_timestamp, lit, col, row_number
+import pyspark.sql.functions as F
 from pyspark.sql.window import Window
+from pyspark.sql.types import DecimalType
 from delta.tables import DeltaTable
-import argparse
+from datetime import datetime, timedelta
 
 # =====================================================
-# Args Airflow
-# =====================================================
-parser = argparse.ArgumentParser()
-
-parser.add_argument("--execution_date", required=True)
-parser.add_argument("--landing_base", required=True)
-parser.add_argument("--raw_base", required=True)
-
-args = parser.parse_args()
-
-# =====================================================
-# 🔥 CONFIGURAR POR TABELA
+# Configs
 # =====================================================
 TABLE = "clientes"
 PRIMARY_KEY = "id_cliente"
 WATERMARK_COL = "data_transacao"
+LOOKBACK_DAYS = 2
 
-landing_path = f"{args.landing_base}/{TABLE}"
-raw_path = f"{args.raw_base}/{TABLE}"
+# =====================================================
+# Paths
+# =====================================================
+landing_path = f"/data/01_landing/ecommerce/{TABLE}"
+raw_path = f"/data/02_raw/ecommerce/{TABLE}"
 
 # =====================================================
 # Spark Session Delta
@@ -36,18 +33,17 @@ spark = (
     .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
     .getOrCreate()
 )
-
-print(f"[RAW] Tabela: {TABLE}")
-print(f"[RAW] Execution date: {args.execution_date}")
+print(f"[RAW][{TABLE}] Source: {landing_path}")
+print(f"[RAW][{TABLE}] Target: {raw_path}")
 
 # =====================================================
-# Bootstrap + Auto Backfill RAW (CDC-aware)
+# CHECK BOOTSTRAP
 # =====================================================
 is_bootstrap = not DeltaTable.isDeltaTable(spark, raw_path)
 
-# -----------------------------------------------------
-# 🔥 LISTAR PARTIÇÕES LANDING VIA HDFS (SEM SCAN)
-# -----------------------------------------------------
+# =====================================================
+# LISTAR PARTIÇÕES LANDING (METADATA ONLY)
+# =====================================================
 fs = spark._jvm.org.apache.hadoop.fs.FileSystem.get(
     spark._jsc.hadoopConfiguration()
 )
@@ -55,31 +51,38 @@ fs = spark._jvm.org.apache.hadoop.fs.FileSystem.get(
 landing_path_j = spark._jvm.org.apache.hadoop.fs.Path(landing_path)
 status = fs.listStatus(landing_path_j)
 
-landing_dt_list = []
+landing_dt_list = [
+    s.getPath().getName().replace("dt=", "")
+    for s in status
+    if s.getPath().getName().startswith("dt=")
+]
 
-for s in status:
-    name = s.getPath().getName()
-    if name.startswith("dt="):
-        landing_dt_list.append(name.replace("dt=", ""))
+landing_dt_df = spark.createDataFrame(
+    [(d,) for d in landing_dt_list], ["dt"]
+).withColumn("dt", F.to_date("dt"))
 
-landing_dt_df = spark.createDataFrame([(d,) for d in landing_dt_list], ["dt"])
-
-# -----------------------------------------------------
-# BOOTSTRAP FULL
-# -----------------------------------------------------
+# =====================================================
+# BOOTSTRAP
+# =====================================================
 if is_bootstrap:
 
-    print("[RAW] Bootstrap FULL → lendo histórico completo da LANDING")
+    print("[RAW] Bootstrap FULL")
 
-    df_inc = spark.read.parquet(landing_path)
+    df_inc = (
+        spark.read
+        .parquet(landing_path)
+    )
 
-# -----------------------------------------------------
-# AUTO BACKFILL + CDC SAFE
-# -----------------------------------------------------
+# =====================================================
+# INCREMENTAL + BACKLOG + LOOKBACK
+# =====================================================
 else:
 
-    print("[RAW] Detectando backlog automaticamente (CDC-aware)...")
+    print("[RAW] Incremental CDC-aware (backlog + lookback)")
 
+    # -------------------------------------------------
+    # PARTIÇÕES JÁ PROCESSADAS
+    # -------------------------------------------------
     raw_dt_df = (
         spark.read
         .format("delta")
@@ -88,56 +91,109 @@ else:
         .distinct()
     )
 
-    # dt ainda não processados
-    backlog_dt = landing_dt_df.join(raw_dt_df, ["dt"], "left_anti")
-
-    # 🔥 SEMPRE incluir execution_date
-    exec_dt_df = spark.createDataFrame([(args.execution_date,)], ["dt"])
-
-    dt_to_process = (
-        backlog_dt.union(exec_dt_df)
-        .dropDuplicates()
-        .cache()
-    )
-
-    qtd = dt_to_process.count()
-    print(f"[RAW] Partições para processamento: {qtd}")
-
-    if qtd == 0:
-        print("[RAW] Nenhum backlog encontrado.")
+    # -------------------------------------------------
+    # proteção LANDING vazio
+    # -------------------------------------------------
+    if landing_dt_df.count() == 0:
+        print("[RAW] LANDING vazio")
         spark.stop()
         exit(0)
 
-    # 🔥 Lazy load REAL
+    # -------------------------------------------------
+    # BACKLOG (NOVOS DIAS)
+    # -------------------------------------------------
+    backlog_dt = landing_dt_df.join(raw_dt_df, ["dt"], "left_anti")
+
+    # -------------------------------------------------
+    # LOOKBACK BASEADO NO DADO (não no relógio)
+    # -------------------------------------------------
+    max_dt = landing_dt_df.agg(F.max("dt")).collect()[0][0]
+
+    recent_days = [
+        (max_dt - timedelta(days=i)).isoformat()
+        for i in range(LOOKBACK_DAYS)
+    ]
+
+    recent_df = spark.createDataFrame([(d,) for d in recent_days], ["dt"]) \
+        .withColumn("dt", F.to_date("dt")) \
+        .intersect(landing_dt_df)
+
+    # -------------------------------------------------
+    # UNION FINAL DE PARTIÇÕES
+    # -------------------------------------------------
+    dt_valid = (
+        backlog_dt
+        .union(recent_df)
+        .dropDuplicates()
+    )
+
+    # -------------------------------------------------
+    # coleta única
+    # -------------------------------------------------
+    dt_rows = dt_valid.collect()
+
+    qtd = len(dt_rows)
+    dt_list = [r.dt for r in dt_rows]
+    partitions = sorted(dt_list)
+
+    print(f"[RAW] Partições para processamento: {qtd}")
+    print("[RAW] Lista de partições:")
+    for p in partitions:
+        print(f" - {p}")
+
+    if qtd == 0:
+        print("[RAW] Nada para processar.")
+        spark.stop()
+        exit(0)
+
+    # -------------------------------------------------
+    # LEITURA EFICIENTE (SEM JOIN)
+    # -------------------------------------------------
     df_inc = (
         spark.read
         .parquet(landing_path)
-        .join(dt_to_process.hint("broadcast"), "dt")
+        .filter(F.col("dt").isin(dt_list))
     )
 
 # =====================================================
-# 2) Dedupe determinístico
+# SCHEMA
 # =====================================================
-window_spec = Window.partitionBy(PRIMARY_KEY).orderBy(col(WATERMARK_COL).desc())
+df_inc = (
+    df_inc.select(
+        F.col("id_cliente").cast("int").alias("id_cliente"),
+        F.col("nome").cast("string").alias("nome"),
+        F.col("cpf").cast("string").alias("cpf"),
+        F.col("email").cast("string").alias("email"),
+        F.col("telefone").cast("string").alias("telefone"),
+        F.to_timestamp("data_cadastro").alias("data_cadastro"),
+        F.to_timestamp("data_transacao").alias("data_transacao"),
+        F.col("dt").cast("date").alias("dt")
+    )
+)
+
+# =====================================================
+# Colunas técnicas
+# =====================================================
+df_inc = (
+    df_inc
+    .withColumn("ingestion_ts", F.current_timestamp())
+    .withColumn("source_system", F.lit("ecommerce_mysql"))
+)
+
+# =====================================================
+# Dedupe determinístic
+# =====================================================
+window_spec = Window.partitionBy(PRIMARY_KEY).orderBy(F.col(WATERMARK_COL).desc())
 
 df_inc = (
     df_inc
-    .withColumn("rn", row_number().over(window_spec))
-    .filter(col("rn") == 1)
+    .withColumn("rn", F.row_number().over(window_spec))
+    .filter(F.col("rn") == 1)
     .drop("rn")
 )
 
 # =====================================================
-# 3) Colunas técnicas
-# =====================================================
-df_inc = (
-    df_inc
-    .withColumn("ingestion_ts", current_timestamp())
-    .withColumn("source_system", lit("ecommerce_mysql"))
-)
-
-# =====================================================
-# 4) Delta MERGE SAFE
+# Delta MERGE SAFE
 # =====================================================
 if not DeltaTable.isDeltaTable(spark, raw_path):
 
@@ -154,8 +210,6 @@ if not DeltaTable.isDeltaTable(spark, raw_path):
 else:
 
     print("[RAW] Executando MERGE incremental (safe merge)")
-
-    df_inc.printSchema()
 
     print("[RAW] Qtd registros antes do merge:",
           spark.read.format("delta").load(raw_path).count())
@@ -182,5 +236,7 @@ else:
 print("[RAW] MERGE concluído.")
 
 print("[RAW] Qtd registros após o merge:",
-          spark.read.format("delta").load(raw_path).count())
+      spark.read.format("delta").load(raw_path).count()
+)
+
 spark.stop()

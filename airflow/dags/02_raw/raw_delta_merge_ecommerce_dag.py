@@ -4,8 +4,6 @@ from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOperator
 from datetime import timedelta
 
-
-
 # =========================================================
 # Tabelas do domínio ecommerce
 # =========================================================
@@ -57,28 +55,13 @@ with DAG(
             application=f"/opt/spark/jobs/02_raw/raw_{table}.py",
             conn_id="spark_standalone",
             deploy_mode="client",
-            py_files="/opt/spark/app/common.zip",
             name=f"raw-ecommerce-{table}",
-
-            # ==========================
-            # Args para o job Spark
-            # ==========================
-            application_args=[
-                "--execution_date",
-                "{{ data_interval_start.in_timezone('America/Sao_Paulo').to_date_string() }}",
-                "--landing_base",
-                "hdfs://namenode:8020/data/01_landing/ecommerce",
-                "--raw_base",
-                "hdfs://namenode:8020/data/02_raw/ecommerce",
-            ],
-
             # ==========================
             # Configurações Spark / Delta
             # ==========================
             conf={
                 "spark.executor.memory": "2g",
                 "spark.executor.cores": "2",
-                "spark.driver.memory": "1g",
                 "spark.sql.shuffle.partitions": "8",
                 "spark.hadoop.dfs.replication": "1",
                 "spark.sql.extensions": "io.delta.sql.DeltaSparkSessionExtension",

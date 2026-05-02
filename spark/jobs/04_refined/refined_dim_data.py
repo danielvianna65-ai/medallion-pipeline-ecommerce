@@ -1,6 +1,17 @@
+# ======================================================
+# IMPORTS
+# ======================================================
 from pyspark.sql import SparkSession
 import pyspark.sql.functions as F
 
+# ======================================================
+# PATH
+# ======================================================
+refined_path = "/data/04_refined/ecommerce/dim_data"
+
+# =====================================================
+# Spark Session Delta
+# =====================================================
 spark = (
     SparkSession.builder
     .appName("dim_data")
@@ -10,12 +21,23 @@ spark = (
     .getOrCreate()
 )
 
-refined_path = "/data/04_refined/ecommerce/dim_data"
+# ======================================================
+# GENERATE DATE RANGE (BASE DATASET)
+# ======================================================
+df = (
+    spark.sql("""
+        SELECT sequence(
+            to_date('2020-01-01'),
+            to_date('2030-12-31'),
+            interval 1 day
+        ) as data_seq
+    """)
+    .select(F.explode("data_seq").alias("data"))
+)
 
-df = spark.sql("""
-SELECT sequence(to_date('2020-01-01'), to_date('2030-12-31'), interval 1 day) as data_seq
-""").select(F.explode("data_seq").alias("data"))
-
+# ======================================================
+# DERIVE DATE ATTRIBUTES (CALENDAR DIMENSIONS)
+# ======================================================
 df = df.select(
     F.date_format("data", "yyyyMMdd").cast("int").alias("sk_data"),
     "data",
@@ -29,23 +51,40 @@ df = df.select(
     F.when(F.dayofweek("data").isin([1,7]), True).otherwise(False).alias("fim_de_semana")
 )
 
-df = df.withColumn(
-    "nome_dia",
-    F.when(F.col("dia_semana") == 1, "Domingo")
-     .when(F.col("dia_semana") == 2, "Segunda")
-     .when(F.col("dia_semana") == 3, "Terça")
-     .when(F.col("dia_semana") == 4, "Quarta")
-     .when(F.col("dia_semana") == 5, "Quinta")
-     .when(F.col("dia_semana") == 6, "Sexta")
-     .when(F.col("dia_semana") == 7, "Sábado")
+# ======================================================
+# DERIVE BUSINESS ATTRIBUTES (SEMANTIC LAYER)
+# ======================================================
+df = (
+    df
+    .withColumn(
+        "nome_dia",
+        F.when(F.col("dia_semana") == 1, "Domingo")
+         .when(F.col("dia_semana") == 2, "Segunda")
+         .when(F.col("dia_semana") == 3, "Terça")
+         .when(F.col("dia_semana") == 4, "Quarta")
+         .when(F.col("dia_semana") == 5, "Quinta")
+         .when(F.col("dia_semana") == 6, "Sexta")
+         .when(F.col("dia_semana") == 7, "Sábado")
+    )
+    .withColumn(
+        "dia_util",
+        ~F.col("dia_semana").isin([1, 7])
+    )
 )
 
-df = df.withColumn(
-    "dia_util",
-    ~F.col("dia_semana").isin([1, 7])
-)
-
+# ======================================================
+# FINAL ORDERING
+# ======================================================
 df = df.orderBy("data")
-df.write.format("delta").mode("overwrite").save(refined_path)
+
+# ======================================================
+# WRITE (DELTA - OVERWRITE)
+# ======================================================
+(
+    df.write
+    .format("delta")
+    .mode("overwrite")
+    .save(refined_path)
+)
 
 spark.stop()

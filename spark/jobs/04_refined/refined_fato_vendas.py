@@ -1,12 +1,27 @@
+# ======================================================
+# IMPORTS
+# ======================================================
 from pyspark.sql import SparkSession
 import pyspark.sql.functions as F
 from delta.tables import DeltaTable
 from pyspark.sql.window import Window
 
 # ======================================================
+# PATHS
+# ======================================================
+base = "/data/03_trusted/ecommerce"
+refined = "/data/04_refined/ecommerce"
+fato_path = f"{refined}/fato_vendas"
+
+# dimensões
+dim_cliente_path = f"{refined}/dim_cliente"
+dim_produto_path = f"{refined}/dim_produto"
+dim_pagamento_path = f"{refined}/dim_pagamento"
+dim_data_path = f"{refined}/dim_data"
+
+# ======================================================
 # SPARK SESSION
 # ======================================================
-
 spark = (
     SparkSession.builder
     .appName("fato_vendas")
@@ -17,29 +32,13 @@ spark = (
 )
 
 # ======================================================
-# PATHS
-# ======================================================
-
-base = "/data/03_trusted/ecommerce"
-refined = "/data/04_refined/ecommerce"
-
-fato_path = f"{refined}/fato_vendas"
-
-# dimensões
-dim_cliente_path = f"{refined}/dim_cliente"
-dim_produto_path = f"{refined}/dim_produto"
-dim_pagamento_path = f"{refined}/dim_pagamento"
-dim_data_path = f"{refined}/dim_data"
-
-# ======================================================
 # READ TRUSTED
 # ======================================================
-
 itens = spark.read.format("delta").load(f"{base}/itens_pedido")
 
 w = Window.partitionBy("id_pedido").orderBy(
     F.col("data_pagamento").desc(),
-    F.col("id_pagamento").desc()  # 🔥 desempate
+    F.col("id_pagamento").desc()
 )
 
 pag = (
@@ -51,7 +50,7 @@ pag = (
 
 w_ped = Window.partitionBy("id_pedido").orderBy(
     F.col("data_transacao").desc(),
-    F.col("ingestion_ts").desc()  # 🔥 desempate forte
+    F.col("ingestion_ts").desc()
 )
 
 ped = (
@@ -60,19 +59,18 @@ ped = (
     .filter("rn = 1")
     .drop("rn")
 )
+
 # ======================================================
 # READ DIMENSIONS
 # ======================================================
-
 dim_cliente = spark.read.format("delta").load(dim_cliente_path)
 dim_produto = spark.read.format("delta").load(dim_produto_path)
 dim_pagamento = spark.read.format("delta").load(dim_pagamento_path)
 dim_data = spark.read.format("delta").load(dim_data_path)
 
 # ======================================================
-# JOIN BASE (CONTROLADO)
+# JOIN
 # ======================================================
-
 df = (
     itens.alias("i")
     .join(ped.alias("p"), "id_pedido")
@@ -80,23 +78,21 @@ df = (
 )
 
 df = df.select(
-    F.col("i.id_pedido"),
-    F.col("i.id_produto"),
-    F.col("i.id_item_pedido"),
-    F.col("p.id_cliente"),
-    F.col("pg.id_pagamento"),
-    F.col("p.data_transacao").alias("data_pedido"),
-    F.col("i.quantidade"),
-    F.col("i.preco_unitario").cast("decimal(12,2)").alias("preco_unitario")
+    "i.id_pedido",
+    "i.id_produto",
+    "i.id_item_pedido",
+    "p.id_cliente",
+    "pg.id_pagamento",
+    F.date_trunc("second", F.col("p.data_transacao")).alias("dt_pedido"),
+    "i.quantidade",
+    "i.preco_unitario"
 )
-df = df.withColumn(
-    "data_pedido",
-    F.to_date("data_pedido")
-)
+
 df = df.withColumn(
     "dt_carga",
     F.current_timestamp()
 )
+
 # ======================================================
 # JOIN DIMENSÕES
 # ======================================================
@@ -105,12 +101,14 @@ df = df.withColumn(
 dim_cliente = dim_cliente.filter("is_current = true")
 
 df = df.join(
-    F.broadcast(dim_cliente.select("id_cliente", "sk_cliente")),
+    F.broadcast(dim_cliente.select("id_cliente", "sk_clinte")),
     "id_cliente",
     "left"
 )
 
 # produto
+dim_produto = dim_produto.filter("is_current = true")
+
 df = df.join(
     F.broadcast(dim_produto.select("id_produto", "sk_produto")),
     "id_produto",
@@ -127,8 +125,9 @@ df = df.join(
 # data
 df = df.withColumn(
     "sk_data_pedido",
-    F.date_format("data_pedido", "yyyyMMdd").cast("int")
+    F.date_format("dt_pedido", "yyyyMMdd").cast("int")
 )
+
 erros = df.join(
     dim_data.select("sk_data"),
     df.sk_data_pedido == dim_data.sk_data,
@@ -137,10 +136,10 @@ erros = df.join(
 
 if erros > 0:
     raise Exception(f"Erro de integridade na dim_data: {erros} registros inválidos")
+
 # ======================================================
 # DATA QUALITY
 # ======================================================
-
 df = df.filter(
     F.col("sk_cliente").isNotNull() &
     F.col("sk_produto").isNotNull() &
@@ -151,45 +150,43 @@ df = df.filter(
 # ======================================================
 # MÉTRICAS
 # ======================================================
-
 df = df.withColumn(
-    "valor_bruto",
+    "valor_total_item",
     (F.col("quantidade") * F.col("preco_unitario")).cast("decimal(12,2)")
 )
 
 # ======================================================
-# SK + HASH
+# SK
 # ======================================================
-
 df = df.withColumn(
     "sk_venda",
-    F.abs(F.hash(
-        "id_pedido",
-        "id_item_pedido",
-        "id_produto"
-    )).cast("bigint")
+    F.sha2(
+        F.concat_ws("|", "id_pedido", "id_item_pedido", "id_produto",),
+        256
+    )
 )
 
 # ======================================================
-# FINAL SELECT (SCHEMA LIMPO)docker
+# FINAL SELECT
 # ======================================================
-
 df_final = df.select(
     "sk_venda",
     "sk_cliente",
     "sk_produto",
     "sk_pagamento",
     "sk_data_pedido",
+    "dt_pedido",
     "id_pedido",
+    "id_item_pedido",
     "quantidade",
     "preco_unitario",
-    "valor_bruto",
+    "valor_total_item",
     "dt_carga"
 )
+
 # ======================================================
 # DATA QUALITY - DUPLICIDADE
 # ======================================================
-
 duplicados = df.groupBy("sk_venda").count().filter("count > 1")
 
 if duplicados.count() > 0:
@@ -200,7 +197,6 @@ if duplicados.count() > 0:
 # ======================================================
 # WRITE (UPSERT REAL)
 # ======================================================
-
 if not DeltaTable.isDeltaTable(spark, fato_path):
 
     df_final.write \
@@ -222,18 +218,24 @@ else:
             NOT (t.sk_produto <=> s.sk_produto) OR
             NOT (t.sk_pagamento <=> s.sk_pagamento) OR
             NOT (t.sk_data_pedido <=> s.sk_data_pedido) OR
+            NOT (t.dt_pedido <=> s.dt_pedido) OR
+            NOT (t.id_pedido <=> s.id_pedido) OR
+            NOT (t.id_item_pedido <=> s.id_item_pedido) OR
             NOT (t.quantidade <=> s.quantidade) OR
             NOT (t.preco_unitario <=> s.preco_unitario) OR
-            NOT (t.valor_bruto <=> s.valor_bruto)
+            NOT (t.valor_total_item <=> s.valor_total_item)
             """,
             set={
                 "sk_cliente": "s.sk_cliente",
                 "sk_produto": "s.sk_produto",
                 "sk_pagamento": "s.sk_pagamento",
                 "sk_data_pedido": "s.sk_data_pedido",
+                "dt_pedido": "s.dt_pedido",
+                "id_pedido": "s.id_pedido",
+                "id_item_pedido": "s.id_item_pedido",
                 "quantidade": "s.quantidade",
                 "preco_unitario": "s.preco_unitario",
-                "valor_bruto": "s.valor_bruto",
+                "valor_total_item": "s.valor_total_item",
                 "dt_carga": "s.dt_carga"
             }
         )

@@ -7,6 +7,17 @@ from delta.tables import DeltaTable
 from pyspark.sql.types import StructType, StructField
 from pyspark.sql.types import StringType, IntegerType, DecimalType
 
+# =====================================================
+# Config
+# =====================================================
+table = "clientes_enrichment"
+
+# =====================================================
+# PATHS
+# =====================================================
+landing_path = f"/data/01_landing/ecommerce/{table}"
+raw_path = f"/data/02_raw/ecommerce/{table}"
+
 # ======================================================
 # SPARK SESSION
 # ======================================================
@@ -18,14 +29,6 @@ spark = (
     .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
     .getOrCreate()
 )
-
-# =====================================================
-# PATHS
-# =====================================================
-table = "clientes_enrichment"
-
-landing_path = f"/data/01_landing/ecommerce/{table}"
-raw_path = f"/data/02_raw/ecommerce/{table}"
 
 # ======================================================
 # READ LANDING
@@ -47,18 +50,16 @@ df_inc = df_inc.dropDuplicates(["cpf"])
 # =====================================================
 # SCHEMA
 # =====================================================
-df_inc = (
-    spark.read.parquet(landing_path)
-    .select(
+df_inc = df_inc.select(
         col("cpf").cast("string"),
         col("nome").cast("string"),
         col("email").cast("string"),
         col("telefone").cast("string"),
-        col("renda_estimada").cast("decimal(10,2)"),
+        col("renda_estimada").cast("decimal(12,2)"),
         col("score_credito").cast("int"),
         col("dt")
     )
-)
+
 print(f"[RAW][{table}] Schema inferido explicitamente")
 df_inc.printSchema()
 

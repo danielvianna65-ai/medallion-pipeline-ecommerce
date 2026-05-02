@@ -99,7 +99,6 @@ services:
   # =========================
   namenode:
     image: bde2020/hadoop-namenode:2.0.0-hadoop3.2.1-java8
-    container_name: namenode
     ports:
       - "9870:9870"
       - "8020:8020"
@@ -136,7 +135,6 @@ services:
   spark-master:
     build: ../../spark
     image: apache/spark:3.5.8
-    container_name: spark-master
     command: >
       /opt/spark/bin/spark-class
       org.apache.spark.deploy.master.Master
@@ -163,7 +161,6 @@ services:
   spark-worker:
     build: ../../spark
     image: apache/spark:3.5.8
-    container_name: spark-worker
     depends_on:
       - spark-master
     command: >

@@ -7,6 +7,17 @@ from pyspark.sql.types import StringType, IntegerType, DecimalType
 from pyspark.sql.functions import current_date
 
 # =====================================================
+# Config
+# =====================================================
+table = "clientes_enrichment"
+
+# =====================================================
+# Paths
+# =====================================================
+source_path = f"/data/reference/{table}.csv"
+landing_path = f"/data/01_landing/ecommerce/{table}"
+
+# =====================================================
 # Spark Session
 # =====================================================
 spark = (
@@ -17,16 +28,10 @@ spark = (
 )
 
 # =====================================================
-# Paths
-# =====================================================
-source_path = "/data/reference/clientes_enrichment.csv"
-landing_path = "/data/01_landing/ecommerce/clientes_enrichment"
-
-# =====================================================
 # READ
 # =====================================================
-print(f"[LANDING][INFO] Source: {source_path}")
-print(f"[LANDING][INFO] Target: {landing_path}")
+print(f"[LANDING][|{table}] Source: {source_path}")
+print(f"[LANDING][{table}] Target: {landing_path}")
 
 df = (
     spark.read
@@ -44,7 +49,7 @@ df = df.withColumn("dt", current_date())
 # =====================================================
 # WRITE
 # =====================================================
-print("[LANDING][INFO] Gravando")
+print(f"[LANDING][{table}] Gravando")
 (
     df.write
     .mode("overwrite")

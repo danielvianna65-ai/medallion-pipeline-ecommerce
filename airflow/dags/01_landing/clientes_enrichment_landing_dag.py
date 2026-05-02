@@ -39,7 +39,6 @@ with DAG(
             "spark.executor.memory": "2g",
             "spark.executor.cores": "2",
             "spark.driver.memory": "1g",
-            "spark.sql.shuffle.partitions": "8",
             "spark.hadoop.dfs.replication": "1",
         },
         verbose=True,

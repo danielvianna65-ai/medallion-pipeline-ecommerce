@@ -12,7 +12,7 @@ As fontes incluem:
 O ambiente é totalmente containerizado com Docker e composto por:
 
 * Apache Airflow (orquestração)
-* Apache Spark (processamento distribuído)
+* Apache Spark (Standalone Cluster)
 * HDFS (data lake)
 * Superset (visualização)
 

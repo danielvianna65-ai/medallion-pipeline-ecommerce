@@ -1,7 +1,19 @@
+# ======================================================
+# IMPORTS
+# ======================================================
 from pyspark.sql import SparkSession
 import pyspark.sql.functions as F
 from delta.tables import DeltaTable
 
+# =====================================================
+# Paths
+# =====================================================
+trusted = "/data/03_trusted/ecommerce/pagamentos"
+refined = "/data/04_refined/ecommerce/dim_pagamento"
+
+# =====================================================
+# Spark Session Delta
+# =====================================================
 spark = (
     SparkSession.builder
     .appName("dim_pagamento")
@@ -11,34 +23,35 @@ spark = (
     .getOrCreate()
 )
 
-trusted = "/data/03_trusted/ecommerce/pagamentos"
-refined = "/data/04_refined/ecommerce/dim_pagamento"
-
+# =====================================================
+# READ TRUSTED
+# =====================================================
 df = spark.read.format("delta").load(trusted)
 
-# =========================
-# SELEÇÃO CORRETA (SÓ DIMENSÃO)
-# =========================
-df = df.select(
-    "id_pagamento",
-    F.trim(F.col("forma_pagamento")).alias("forma_pagamento"),
-    F.trim(F.col("status_pagamento")).alias("status_pagamento")
-)
-
-# remove duplicidade por chave de negócio
-df = df.dropDuplicates(["id_pagamento"])
-
-# =========================
-# SK ESTÁVEL
-# =========================
+# =====================================================
+# SK
+# =====================================================
 df = df.withColumn(
     "sk_pagamento",
     F.abs(F.hash("id_pagamento")).cast("bigint")
 )
 
-# =========================
+# =====================================================
+# SELECT
+# =====================================================
+df = df.select(
+    "id_pagamento",
+    "id_pedido",
+    "sk_pagamento",
+    "forma_pagamento",
+    "status_pagamento",
+    "valor_pago",
+    "data_transacao"
+)
+
+# =====================================================
 # MERGE SCD1
-# =========================
+# =====================================================
 if not DeltaTable.isDeltaTable(spark, refined):
     df.write.format("delta").mode("overwrite").save(refined)
 

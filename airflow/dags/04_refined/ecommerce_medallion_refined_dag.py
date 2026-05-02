@@ -11,7 +11,6 @@ from airflow.utils.task_group import TaskGroup
 
 DIM_JOBS = [
     "dim_data",
-    "dim_categoria",
     "dim_produto",
     "dim_cliente",
     "dim_pagamento",
@@ -68,22 +67,10 @@ with DAG(
                 application=f"/opt/spark/jobs/04_refined/refined_{table}.py",
                 conn_id="spark_standalone",
                 deploy_mode="client",
-                py_files="/opt/spark/app/common.zip",
                 name=f"refined-{table}",
                 conf=SPARK_CONF,
                 verbose=True,
             )
-
-        ordered_dims = [
-            "dim_data",
-            "dim_categoria",
-            "dim_produto",
-            "dim_cliente",
-            "dim_pagamento",
-        ]
-
-        for i in range(len(ordered_dims) - 1):
-            dim_tasks[ordered_dims[i]] >> dim_tasks[ordered_dims[i + 1]]
 
     # ==================================================
     # TASK GROUP - FATO
@@ -96,7 +83,6 @@ with DAG(
             application="/opt/spark/jobs/04_refined/refined_fato_vendas.py",
             conn_id="spark_standalone",
             deploy_mode="client",
-            py_files="/opt/spark/app/common.zip",
             name="refined-fato-vendas",
             conf=SPARK_CONF,
         )

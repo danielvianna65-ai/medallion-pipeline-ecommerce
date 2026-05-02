@@ -1,3 +1,6 @@
+# =====================================================
+# IMPORTS
+# =====================================================
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, lit, max as spark_max, to_date
 import argparse
@@ -43,7 +46,7 @@ print(f"[INFO] Tabela: {table}")
 print(f"[INFO] Execution date: {execution_date}")
 
 # ==========================
-# 1) Ler watermark do metadata
+# 1) Ler watermark do metadatadocker compose
 # ==========================
 watermark = None
 
@@ -106,11 +109,6 @@ df_new = df_new.withColumn(
     "dt",
     to_date(col(watermark_col))
 )
-
-# =========================================================
-# 6) deduplicação
-# =========================================================
-df_new = df_new.dropDuplicates()
 
 # ==========================
 # 7) Escrever incremental na LANDING

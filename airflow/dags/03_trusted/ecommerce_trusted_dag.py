@@ -38,18 +38,22 @@ with DAG(
 
     trusted_tasks = []
 
+    # =====================================================
+    # Loop de criação das tasks (1 job por tabela)
+    # =====================================================
     for tabela in TRUSTED_JOBS:
         task = SparkSubmitOperator(
             task_id=f"trusted_{tabela}",
             application=f"/opt/spark/jobs/03_trusted/trusted_{tabela}.py",
             conn_id="spark_standalone",
             deploy_mode="client",
-            py_files="/opt/spark/app/common.zip",
             name=f"trusted-ecommerce-{tabela}",
+            # ==========================
+            # Configurações Spark / Delta
+            # ==========================
             conf={
                 "spark.executor.memory": "2g",
                 "spark.executor.cores": "2",
-
                 "spark.sql.shuffle.partitions": "8",
                 "spark.hadoop.dfs.replication": "1",
                 "spark.sql.extensions": "io.delta.sql.DeltaSparkSessionExtension",

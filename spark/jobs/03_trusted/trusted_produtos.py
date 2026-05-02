@@ -1,12 +1,29 @@
+# =====================================================
+# IMPORTS
+# =====================================================
 from pyspark.sql import SparkSession
 import pyspark.sql.functions as F
 from pyspark.sql.window import Window
 from delta.tables import DeltaTable
+from datetime import datetime, timedelta
 
-# =========================
-# SPARK SESSION
-# =========================
+# =====================================================
+# Configs
+# =====================================================
+table = "produtos"
+PRIMARY_KEY = "id_produto"
+WATERMARK_COL = "data_transacao"
+LOOKBACK_DAYS = 2
 
+# =====================================================
+# Paths
+# =====================================================
+raw_path = f"/data/02_raw/ecommerce/{table}"
+trusted_path = f"/data/03_trusted/ecommerce/{table}"
+
+# =====================================================
+# Spark Session Delta
+# =====================================================
 spark = (
     SparkSession.builder
     .appName("trusted_produtos")
@@ -15,29 +32,130 @@ spark = (
     .config("spark.sql.catalog.spark_catalog","org.apache.spark.sql.delta.catalog.DeltaCatalog")
     .getOrCreate()
 )
+print(f"[TRUSTED][{table}] Source: {raw_path}")
+print(f"[TRUSTED][{table}] Target: {trusted_path}")
 
-table = "produtos"
+# =====================================================
+# CHECK BOOTSTRAP
+# =====================================================
+is_bootstrap = not DeltaTable.isDeltaTable(spark, trusted_path)
 
-PRIMARY_KEY = "id_produto"
-WATERMARK_COL = "data_transacao"
+# =====================================================
+# LISTAR PARTIÇÕES RAW (METADATA ONLY)
+# =====================================================
+fs = spark._jvm.org.apache.hadoop.fs.FileSystem.get(
+    spark._jsc.hadoopConfiguration()
+)
 
-raw_path = f"/data/02_raw/ecommerce/{table}"
-trusted_path = f"/data/03_trusted/ecommerce/{table}"
+raw_path_j = spark._jvm.org.apache.hadoop.fs.Path(raw_path)
+status = fs.listStatus(raw_path_j)
 
-# =========================
-# READ RAW
-# =========================
+raw_dt_list = [
+    s.getPath().getName().replace("dt=", "")
+    for s in status
+    if s.getPath().getName().startswith("dt=")
+]
 
-df = spark.read.format("delta").load(raw_path)
+raw_dt_df = spark.createDataFrame(
+    [(d,) for d in raw_dt_list], ["dt"]
+).withColumn("dt", F.to_date("dt"))
 
-# =========================
+# =====================================================
+# BOOTSTRAP
+# =====================================================
+if is_bootstrap:
+
+    print("[trusted] Bootstrap FULL")
+
+    df_inc = (
+        spark.read
+        .parquet(raw_path)
+    )
+
+# =====================================================
+# INCREMENTAL + BACKLOG + LOOKBACK
+# =====================================================
+else:
+
+    print("[trusted] Incremental CDC-aware (backlog + lookback)")
+
+    # -------------------------------------------------
+    # PARTIÇÕES JÁ PROCESSADAS
+    # -------------------------------------------------
+    trusted_dt_df = (
+        spark.read
+        .format("delta")
+        .load(trusted_path)
+        .select("dt")
+        .distinct()
+    )
+
+    # -------------------------------------------------
+    # proteção RAW vazio
+    # -------------------------------------------------
+    if raw_dt_df.count() == 0:
+        print("[trusted] RAW vazio")
+        spark.stop()
+        exit(0)
+
+    # -------------------------------------------------
+    # BACKLOG (NOVOS DIAS)
+    # -------------------------------------------------
+    backlog_dt = raw_dt_df.join(trusted_dt_df, ["dt"], "left_anti")
+
+    # -------------------------------------------------
+    # LOOKBACK BASEADO NO DADO (não no relógio)
+    # -------------------------------------------------
+    max_dt = raw_dt_df.agg(F.max("dt")).collect()[0][0]
+
+    recent_days = [
+        (max_dt - timedelta(days=i)).isoformat()
+        for i in range(LOOKBACK_DAYS)
+    ]
+
+    recent_df = spark.createDataFrame([(d,) for d in recent_days], ["dt"]) \
+        .withColumn("dt", F.to_date("dt")) \
+        .intersect(raw_dt_df)
+
+    # -------------------------------------------------
+    # UNION FINAL DE PARTIÇÕES
+    # -------------------------------------------------
+    dt_valid = (
+        backlog_dt
+        .union(recent_df)
+        .dropDuplicates()
+    )
+
+    dt_rows = dt_valid.collect()
+
+    qtd = len(dt_rows)
+    dt_list = [r.dt for r in dt_rows]
+    partitions = sorted(dt_list)
+
+    print(f"[trusted] Partições para processamento: {qtd}")
+    print("[trusted] Lista de partições:")
+    for p in partitions:
+        print(f" - {p}")
+
+    if qtd == 0:
+        print("[trusted] Nada para processar.")
+        spark.stop()
+        exit(0)
+
+    # leitura
+    df_inc = (
+        spark.read
+        .parquet(raw_path)
+        .filter(F.col("dt").isin(dt_list))
+    )
+
+# =====================================================
 # CLEANING
-# =========================
+# =====================================================
+df_clean = df_inc.select(
 
-df_clean = df.select(
-
-    F.col("id_produto").cast("int"),
-    F.col("id_categoria").cast("int"),
+    "id_produto",
+    "id_categoria",
 
     # nome padronizado
     F.initcap(
@@ -50,36 +168,34 @@ df_clean = df.select(
 
     # descricao
     F.trim("descricao").alias("descricao"),
-
-    # preco
-    F.col("preco").cast("double"),
-
-    # ativo
-    F.col("ativo").cast("int"),
-
+    "preco",
+    "ativo",
     "data_transacao",
     "dt",
     "source_system",
     "ingestion_ts"
 )
 
-# =========================
+# =====================================================
 # DATA QUALITY
-# =========================
-
+# =====================================================
 df_clean = (
     df_clean
     .withColumn("preco_valido", F.col("preco") >= 0)
-    .withColumn("ativo_valido", F.col("ativo").isin(0,1))
+    .withColumn(
+        "ativo_valido",
+        F.when(F.col("ativo").isNull(), False)
+        .when(F.col("ativo").isin(True, False), True)
+        .otherwise(False)
+    )
 )
 
-# =========================
-# REGRA DE NEGÓCIO (IMPORTANTE)
-# =========================
-
+# =====================================================
+# BUSINESS RULE
+# =====================================================
 window_spec = Window.partitionBy("nome_produto").orderBy(
-    F.col("ativo").desc(),               # PRIORIDADE 1
-    F.col("data_transacao").desc()       # PRIORIDADE 2
+    F.col("ativo").desc(),
+    F.col("data_transacao").desc()
 )
 
 df_clean = (
@@ -89,23 +205,32 @@ df_clean = (
     .drop("rn")
 )
 
-
-# =========================
-# AUDITORIA
-# =========================
-
+# ======================================================
+# Data Auditing
+# ======================================================
 df_clean = df_clean.withColumn(
     "processing_trusted",
     F.current_timestamp()
 )
 
-# =========================
-# WRITE TRUSTED
-# =========================
+# =====================================================
+# Dedupe determinístic
+# =====================================================
+window_spec = Window.partitionBy(PRIMARY_KEY).orderBy(F.col(WATERMARK_COL).desc())
 
+df_clean = (
+    df_clean
+    .withColumn("rn", F.row_number().over(window_spec))
+    .filter(F.col("rn") == 1)
+    .drop("rn")
+)
+
+# ======================================================
+# Incremental Merge
+# ======================================================
 if not DeltaTable.isDeltaTable(spark, trusted_path):
 
-    print("[Trusted] Bootstrap inicial")
+    print(f"[Trusted][{table}] Bootstrap inicial")
 
     (
         df_clean.write
@@ -117,10 +242,10 @@ if not DeltaTable.isDeltaTable(spark, trusted_path):
 
 else:
 
-    print("[Trusted] Executando MERGE incremental")
+    print(f"[Trusted][{table}] Executando MERGE incremental")
 
     print(
-        "[Trusted] Qtd registros antes do merge:",
+        f"[Trusted][{table}] Qtd registros antes do merge:",
         spark.read.format("delta").load(trusted_path).count()
     )
 
@@ -143,10 +268,10 @@ else:
         .execute()
     )
 
-print("[Trusted] MERGE concluído")
+print(f"[Trusted][{table}] MERGE concluído")
 
 print(
-    "[Trusted] Qtd registros após o merge:",
+    f"[Trusted][{table}] Qtd registros após o merge:",
     spark.read.format("delta").load(trusted_path).count()
 )
 

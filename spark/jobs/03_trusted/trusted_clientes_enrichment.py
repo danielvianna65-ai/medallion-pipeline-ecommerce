@@ -6,9 +6,21 @@ from pyspark.sql import functions as F
 from pyspark.sql.window import Window
 from delta.tables import DeltaTable
 
+# =====================================================
+# Config
+# =====================================================
+table = "clientes_enrichment"
+
 # ======================================================
-# SPARK SESSION
+# PATHS
 # ======================================================
+raw_path = f"/data/02_raw/ecommerce/{table}"
+trusted_path = f"/data/03_trusted/ecommerce/{table}"
+clientes_path = "/data/03_trusted/ecommerce/clientes"
+
+# =====================================================
+# Spark Session Delta
+# =====================================================
 spark = (
     SparkSession.builder
     .appName("trusted_clientes_enrichmentcount5")
@@ -17,15 +29,6 @@ spark = (
     .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
     .getOrCreate()
 )
-
-# ======================================================
-# PATHS
-# ======================================================
-table = "clientes_enrichment"
-
-raw_path = f"/data/02_raw/ecommerce/{table}"
-trusted_path = f"/data/03_trusted/ecommerce/{table}"
-clientes_path = "/data/03_trusted/ecommerce/clientes"
 
 # ======================================================
 # READ RAW
@@ -39,7 +42,6 @@ df_raw = spark.read.format("delta").load(raw_path)
 # ======================================================
 # DATA QUALITY + NORMALIZATION
 # ======================================================
-
 print(f"[TRUSTED][{table}] Aplicando limpeza e padronização")
 
 df_clean = (
@@ -68,7 +70,7 @@ df_clean = (
     )
 
     # Telefone (STRING + normalizado)
-    .withColumn("telefone", F.regexp_replace(F.col("telefone").cast("string"), "[^0-9]", ""))
+    .withColumn("telefone", F.regexp_replace(F.col("telefone"), "[^0-9]", ""))
 
     # Email
     .withColumn("email", F.lower(F.trim(F.col("email"))))
@@ -77,10 +79,9 @@ df_clean = (
     .filter(F.col("cpf").rlike("^[0-9]{11}$"))
 )
 
-# # ======================================================
-# # Data Quality Checks
-# # ======================================================
-
+# ======================================================
+# Data Quality Checks
+# ======================================================
 df_clean = (
     df_clean
 
@@ -106,7 +107,6 @@ df_clean = (
 # ======================================================
 # Deterministic Deduplication
 # ======================================================
-
 print(f"[TRUSTED][{table}] Deduplicando enrichment")
 
 w = Window.partitionBy("cpf").orderBy(F.col("ingestion_ts").desc())
@@ -121,7 +121,6 @@ df_clean = (
 # ======================================================
 # Filter Existing CPFs in (clientes_trusted)
 # ======================================================
-
 print("[TRUSTED] Validando domínio (clientes)")
 
 df_clientes = (
@@ -147,7 +146,6 @@ print(f"[TRUSTED][{table}] Registros válidos: {df_match.count()}")
 # ======================================================
 # Data Auditing
 # ======================================================
-
 df_match = df_match.withColumn(
     "processing_trusted",
     F.current_timestamp()
@@ -156,7 +154,6 @@ df_match = df_match.withColumn(
 # ======================================================
 # Incremental Merge
 # ======================================================
-
 is_bootstrap = not DeltaTable.isDeltaTable(spark, trusted_path)
 
 if is_bootstrap:
