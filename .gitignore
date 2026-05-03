@@ -25,9 +25,7 @@ derby.log
 # =========================
 data/
 *.parquet
-
-# ⚠️ NÃO ignorar todos CSV cegamente
-# *.csv
+.csv
 
 # =========================
 # Environment / Secrets
