@@ -25,7 +25,7 @@ derby.log
 # =========================
 data/
 *.parquet
-*.csv
+docs/*.csv
 
 # =========================
 # Environment / Secrets
