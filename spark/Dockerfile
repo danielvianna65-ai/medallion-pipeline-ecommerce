@@ -2,10 +2,6 @@ FROM apache/spark:3.5.8
 
 USER root
 
-RUN apt-get update && \
-    apt-get install -y zip unzip && \
-    rm -rf /var/lib/apt/lists/*
-
 # cria diretório
 RUN mkdir -p /opt/spark/external-jars
 

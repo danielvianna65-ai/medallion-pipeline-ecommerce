@@ -1,24 +1,59 @@
+# =========================
 # Python
+# =========================
 __pycache__/
 *.pyc
 *.pyo
+*.pyd
 
+# =========================
 # Airflow
+# =========================
 airflow/logs/
 airflow/__pycache__/
 
-# Spark
+# =========================
+# Spark / Hadoop
+# =========================
 spark-warehouse/
+metastore_db/
+derby.log
 *.crc
 
+# =========================
+# Data (big files)
+# =========================
+data/
+*.parquet
+
+# ⚠️ NÃO ignorar todos CSV cegamente
+# *.csv
+
+# =========================
+# Environment / Secrets
+# =========================
+.env
+.env.*
+*.env
+
+# =========================
+# Docker
+# =========================
+docker-compose.override.yml
+
+# =========================
+# Logs gerais
+# =========================
+*.log
+
+# =========================
 # IDE
+# =========================
 .idea/
 .vscode/
 
-# HDFS / dados
-data/
-*.parquet
-*.csv
-
+# =========================
 # OS
+# =========================
 .DS_Store
+Thumbs.db

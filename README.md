@@ -1,200 +1,107 @@
-# 📊 Data Engineering Pipeline (End-to-End)
+# 🛒 Medallion Pipeline E-commerce
 
-## 🧠 Visão Geral
+## 📌 Visão Geral
 
-Este projeto implementa um pipeline de dados end-to-end simulando um ambiente real de engenharia de dados, integrando múltiplas fontes e aplicando transformações em arquitetura de camadas (Medallion Architecture).
+Este projeto implementa um pipeline de engenharia de dados end-to-end baseado na arquitetura **Medallion**, com ingestão incremental, processamento distribuído e modelagem dimensional.
 
-As fontes incluem:
+O pipeline processa dados de e-commerce provenientes de um banco MySQL e fontes auxiliares (CSV), transformando-os em um modelo analítico pronto para consumo.
 
-* Banco transacional (MySQL)
-* Arquivos CSV para enriquecimento de dados
+---
 
-O ambiente é totalmente containerizado com Docker e composto por:
+## 🧱 Stack Tecnológica
 
 * Apache Airflow (orquestração)
-* Apache Spark (Standalone Cluster)
+* Apache Spark 3.5.8 (processamento distribuído)
+* Delta Lake (armazenamento e merge incremental)
 * HDFS (data lake)
-* Superset (visualização)
+* Docker Compose (infraestrutura)
+* Python (PySpark)
 
 ---
 
-## 📊 Arquitetura do Pipeline
+## 🔄 Fluxo do Pipeline
 
----
-```markdown
-```mermaid
-flowchart LR
-
-    subgraph "Fontes de Dados"
-        A["MySQL (Transacional)"]
-        B["CSV (Fonte Externa)"]
-    end
-
-    subgraph "Landing (HDFS)"
-        C["Dados Brutos"]
-    end
-
-    subgraph "Raw (HDFS)"
-        D["Parquet + Metadata"]
-    end
-
-    subgraph "Trusted (HDFS)"
-        E["Limpeza e Padronização"]
-    end
-
-    subgraph "Refined (HDFS)"
-        F["Modelo Dimensional"]
-    end
-
-    subgraph "Processamento"
-        G["Spark Jobs"]
-    end
-
-    subgraph "Orquestração"
-        H["Airflow DAGs"]
-    end
-
-    subgraph "Consumo"
-        I["Superset / DuckDB"]
-    end
-
-    A --> C
-    B --> C
-
-    C --> G --> D
-    D --> G --> E
-    E --> G --> F
-
-    F --> I
-
-    H --> G
-````
----
-
-## 🏗️ Arquitetura em Camadas
-
-### 🟤 Landing (Bronze - Ingestão)
-- Dados brutos conforme origem
-- Armazenados em formato **Parquet**
-### ⚪ Raw
-- Conversão para **Delta Lake**
-- Inclusão de metadados:
-  - Data de ingestão
-  - Origem
-- Suporte a versionamento e operações ACID
-
-### 🟡 Trusted
-- Limpeza e padronização
-- Tratamento de nulos
-- Deduplicação
-- Validação de qualidade
-
-### 🟢 Refined
-- Modelagem dimensional (Star Schema)
-- Enriquecimento de dados
-
-## 🧩 Modelo Dimensional
-![Modelo Dimensional](docs/modelo_dimensional.png)
-
-#### Tabelas:
-
-**Fato**
-- fato_vendas
-
-**Dimensões**
-- dim_cliente
-- dim_produto
-- dim_data
-- dim_pagamento
-
----
-
-## 🔄 Fluxo de Dados
-
-1. Dados são ingeridos do MySQL e CSV
-2. Armazenados na camada Landing
-3. Processados para Raw (Parquet + metadata)
-4. Tratados na Trusted (qualidade)
-5. Modelados na Refined (fato + dimensões)
-6. Consumidos via Superset
-
----
-
-## ⚙️ Stack Tecnológica
-
-- Apache Airflow
-- Apache Spark (PySpark)
-- HDFS
-- Docker Compose
-- MySQL
-- Superset
-- DuckDB
-
----
-
-## 🔑 Decisões Técnicas
-
-### Surrogate Keys com Hash
-
-```python
-F.abs(F.hash("id_pedido", "id_item_pedido", "id_produto")).cast("bigint")
-```
-
-**Motivação:**
-- Determinístico
-- Escalável
-- Compatível com processamento distribuído
-
----
-
-### Uso de Parquet
-
-- Formato colunar
-- Melhor compressão
-- Alta performance no Spark
-
----
-
-### Arquitetura em Camadas
-
-- Reprocessamento isolado
-- Melhor governança
-- Separação de responsabilidades
-
----
-
-## 🚀 Roadmap (Evoluções Futuras)
-
-- Carga incremental (partition por data)
-- Data Quality automatizada
-- Integração direta com engine analítica
-- Monitoramento e alertas no Airflow
-
----
-
-## ▶️ Como Executar
-
-```bash
-# Subir ambiente
-Docker Compose up -d --build
-
-# Acessar Airflow
-http://localhost:8080
-
-# Acessar Superset
-http://localhost:8088
+```text
+MySQL / CSV
+   ↓
+Landing (ingestão incremental)
+   ↓
+Raw (CDC + Delta Merge)
+   ↓
+Trusted (Data Quality + regras de negócio)
+   ↓
+Refined (modelo dimensional - Star Schema)
 ```
 
 ---
 
-## 📌 Objetivo
+## 🟡 Landing
 
-Demonstrar na prática a construção de um pipeline moderno de engenharia de dados com boas práticas de mercado, incluindo:
+* Ingestão incremental via **watermark**
+* Leitura via JDBC (MySQL)
+* Escrita em Parquet particionado
+* Controle de estado via metadata em HDFS
 
-- Arquitetura em camadas
-- Processamento distribuído
-- Orquestração de workflows
-- Modelagem dimensional
-- Visualização de dados
+---
 
-````
+## 🔵 Raw
+
+* Conversão para Delta Lake
+* CDC com **merge incremental**
+* Estratégia:
+
+  * backlog (dados não processados)
+  * lookback (reprocessamento recente)
+* Deduplicação por chave de negócio
+
+---
+
+## 🟢 Trusted
+
+* Limpeza e padronização de dados
+* Validações:
+
+  * CPF (regra oficial)
+  * Email
+  * Telefone
+* Flags de qualidade de dados
+* Merge incremental consistente
+
+---
+
+## 🟣 Refined
+
+Implementação de modelo dimensional (Star Schema):
+
+### Dimensões
+
+* Cliente (SCD Tipo 2)
+* Produto (SCD Tipo 2)
+* Pagamento
+* Data
+
+### Fato
+
+* Fato de vendas (nível item do pedido)
+
+---
+
+## 📊 Características do Projeto
+
+* Pipeline incremental real (não full reload)
+* CDC com Delta Lake
+* SCD Tipo 2 implementado
+* Data Quality explícita
+* Arquitetura distribuída (Spark Cluster)
+* Separação clara por camadas
+
+---
+
+## 🚀 Objetivo
+
+Demonstrar uma arquitetura moderna de engenharia de dados, próxima de cenários reais de produção, com foco em:
+
+* Escalabilidade
+* Governança
+* Qualidade de dados
+* Modelagem analítica

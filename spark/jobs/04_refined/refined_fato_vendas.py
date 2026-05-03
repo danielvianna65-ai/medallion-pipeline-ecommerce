@@ -101,7 +101,7 @@ df = df.withColumn(
 dim_cliente = dim_cliente.filter("is_current = true")
 
 df = df.join(
-    F.broadcast(dim_cliente.select("id_cliente", "sk_clinte")),
+    F.broadcast(dim_cliente.select("id_cliente", "sk_cliente")),
     "id_cliente",
     "left"
 )
