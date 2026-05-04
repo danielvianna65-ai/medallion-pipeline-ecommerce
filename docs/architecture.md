@@ -6,7 +6,7 @@ Pipeline de dados distribuído baseado em arquitetura Medallion com modelagem di
 
 ---
 ## 🧩 Diagrama Arquitetura
-![Diagrama de arquitetura](./docs/diagrams/Arquitetura_Medallion_Pipeline.png)
+![Diagrama de arquitetura](./diagrams/Arquitetura_Medallion_Pipeline.png)
 ---
 ## 🧱 Infraestrutura
 
