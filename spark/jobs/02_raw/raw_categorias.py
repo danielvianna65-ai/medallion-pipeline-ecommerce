@@ -74,7 +74,7 @@ if is_bootstrap:
     )
 
 # =====================================================
-# INCREMENTAL + BACKLOG + LOOKBACK
+# INCREMENTAL - UNPROCESSED + LOOKBACK
 # =====================================================
 else:
 
@@ -92,7 +92,7 @@ else:
     )
 
     # -------------------------------------------------
-    # proteção LANDING vazio
+    # empty landing protection
     # -------------------------------------------------
     if landing_dt_df.count() == 0:
         print("[RAW] LANDING vazio")
@@ -100,12 +100,12 @@ else:
         exit(0)
 
     # -------------------------------------------------
-    # BACKLOG (NOVOS DIAS)
+    # unprocessed
     # -------------------------------------------------
-    backlog_dt = landing_dt_df.join(raw_dt_df, ["dt"], "left_anti")
+    unprocessed_dt_df = landing_dt_df.join(raw_dt_df, ["dt"], "left_anti")
 
     # -------------------------------------------------
-    # LOOKBACK BASEADO NO DADO (não no relógio)
+    # DATA-BASED LOOKBACK
     # -------------------------------------------------
     max_dt = landing_dt_df.agg(F.max("dt")).collect()[0][0]
 
@@ -119,16 +119,16 @@ else:
         .intersect(landing_dt_df)
 
     # -------------------------------------------------
-    # UNION FINAL DE PARTIÇÕES
+    # UNION FINAL OF PARTITIONS
     # -------------------------------------------------
     dt_valid = (
-        backlog_dt
+        unprocessed_dt_df
         .union(recent_df)
         .dropDuplicates()
     )
 
     # -------------------------------------------------
-    # coleta única
+    # single collection
     # -------------------------------------------------
     dt_rows = dt_valid.collect()
 
@@ -147,7 +147,7 @@ else:
         exit(0)
 
     # -------------------------------------------------
-    # LEITURA EFICIENTE (SEM JOIN)
+    # EFFICIENT READING (NO JOIN)
     # -------------------------------------------------
     df_inc = (
         spark.read
