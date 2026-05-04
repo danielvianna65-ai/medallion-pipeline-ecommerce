@@ -41,7 +41,7 @@ print(f"[TRUSTED][{table}] Target: {trusted_path}")
 is_bootstrap = not DeltaTable.isDeltaTable(spark, trusted_path)
 
 # =====================================================
-# LISTAR PARTIÇÕES RAW (METADATA ONLY)
+# List Raw Partitions (Metadata Only)
 # =====================================================
 fs = spark._jvm.org.apache.hadoop.fs.FileSystem.get(
     spark._jsc.hadoopConfiguration()
@@ -73,14 +73,14 @@ if is_bootstrap:
     )
 
 # =====================================================
-# INCREMENTAL + BACKLOG + LOOKBACK
+# INCREMENTAL - UNPROCESSED + LOOKBACK
 # =====================================================
 else:
 
-    print("[trusted] Incremental CDC-aware (backlog + lookback)")
+    print("[trusted] Incremental CDC-aware (Unprocessed + Lookback)")
 
     # -------------------------------------------------
-    # PARTIÇÕES JÁ PROCESSADAS
+    # Partitions already processed
     # -------------------------------------------------
     trusted_dt_df = (
         spark.read
@@ -91,7 +91,7 @@ else:
     )
 
     # -------------------------------------------------
-    # proteção RAW vazio
+    # Empty RAW protection
     # -------------------------------------------------
     if raw_dt_df.count() == 0:
         print("[trusted] RAW vazio")
@@ -99,12 +99,12 @@ else:
         exit(0)
 
     # -------------------------------------------------
-    # BACKLOG (NOVOS DIAS)
+    # unprocessed
     # -------------------------------------------------
-    backlog_dt = raw_dt_df.join(trusted_dt_df, ["dt"], "left_anti")
+    unprocessed_dt_df  = raw_dt_df.join(trusted_dt_df, ["dt"], "left_anti")
 
     # -------------------------------------------------
-    # LOOKBACK BASEADO NO DADO (não no relógio)
+    # DATA-BASED LOOKBACK
     # -------------------------------------------------
     max_dt = raw_dt_df.agg(F.max("dt")).collect()[0][0]
 
@@ -113,19 +113,22 @@ else:
         for i in range(LOOKBACK_DAYS)
     ]
 
-    recent_df = spark.createDataFrame([(d,) for d in recent_days], ["dt"]) \
+    lookback_df = spark.createDataFrame([(d,) for d in recent_days], ["dt"]) \
         .withColumn("dt", F.to_date("dt")) \
         .intersect(raw_dt_df)
 
     # -------------------------------------------------
-    # UNION FINAL DE PARTIÇÕES
+    # UNION FINAL OF PARTITIONS
     # -------------------------------------------------
     dt_valid = (
-        backlog_dt
-        .union(recent_df)
+        unprocessed_dt_df
+        .union(lookback_df)
         .dropDuplicates()
     )
 
+    # -------------------------------------------------
+    # single collection
+    # -------------------------------------------------
     dt_rows = dt_valid.collect()
 
     qtd = len(dt_rows)
@@ -142,7 +145,37 @@ else:
         spark.stop()
         exit(0)
 
-    # leitura
+    # -------------------------------------------------
+    # EFFICIENT READING (NO JOIN)
+    # -------------------------------------------------
+    df_inc = (
+        spark.read
+        .parquet(raw_path)
+        .filter(F.col("dt").isin(dt_list))
+    )
+
+    # -------------------------------------------------
+    # single collection
+    # -------------------------------------------------
+    dt_rows = dt_valid.collect()
+
+    qtd = len(dt_rows)
+    dt_list = [r.dt for r in dt_rows]
+    partitions = sorted(dt_list)
+
+    print(f"[trusted] Partições para processamento: {qtd}")
+    print("[trusted] Lista de partições:")
+    for p in partitions:
+        print(f" - {p}")
+
+    if qtd == 0:
+        print("[trusted] Nada para processar.")
+        spark.stop()
+        exit(0)
+
+    # -------------------------------------------------
+    # EFFICIENT READING (NO JOIN)
+    # -------------------------------------------------
     df_inc = (
         spark.read
         .parquet(raw_path)
@@ -187,9 +220,9 @@ df_clean = (
     )
 )
 
-# =====================================================
-# Data Auditing
-# =====================================================
+# ======================================================
+# Data Label
+# ======================================================
 df_clean = df_clean.withColumn(
     "processing_trusted",
     F.current_timestamp()

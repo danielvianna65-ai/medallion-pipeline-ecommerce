@@ -6,7 +6,6 @@ import pyspark.sql.functions as F
 from pyspark.sql.window import Window
 from pyspark.sql.types import DecimalType
 from delta.tables import DeltaTable
-from datetime import timedelta
 
 # =====================================================
 # Configs
@@ -42,7 +41,7 @@ print(f"[RAW][{TABLE}] Target: {raw_path}")
 is_bootstrap = not DeltaTable.isDeltaTable(spark, raw_path)
 
 # =====================================================
-# LISTAR PARTIÇÕES LANDING (METADATA ONLY)
+# List Raw Partitions (Metadata Only)
 # =====================================================
 fs = spark._jvm.org.apache.hadoop.fs.FileSystem.get(
     spark._jsc.hadoopConfiguration()
@@ -74,14 +73,14 @@ if is_bootstrap:
     )
 
 # =====================================================
-# INCREMENTAL + UNPROCESSED + LOOKBACK
+# INCREMENTAL - UNPROCESSED + LOOKBACK
 # =====================================================
 else:
 
-    print("[RAW] Incremental CDC-aware (backlog + lookback)")
+    print("[RAW] Incremental CDC-aware (Unprocessed + Lookback)")
 
     # -------------------------------------------------
-    # PARTIÇÕES JÁ PROCESSADAS
+    # Partitions already processed
     # -------------------------------------------------
     raw_dt_df = (
         spark.read
@@ -107,23 +106,20 @@ else:
     # -------------------------------------------------
     # DATA-BASED LOOKBACK
     # -------------------------------------------------
-    max_dt = landing_dt_df.agg(F.max("dt")).collect()[0][0]
-
-    recent_days = [
-        (max_dt - timedelta(days=i)).isoformat()
-        for i in range(LOOKBACK_DAYS)
-    ]
-
-    recent_df = spark.createDataFrame([(d,) for d in recent_days], ["dt"]) \
-        .withColumn("dt", F.to_date("dt")) \
-        .intersect(landing_dt_df)
+    lookback_df = (
+        landing_dt_df
+        .select("dt")
+        .distinct()
+        .orderBy(F.col("dt").desc())
+        .limit(LOOKBACK_DAYS)
+    )
 
     # -------------------------------------------------
     # UNION FINAL OF PARTITIONS
     # -------------------------------------------------
     dt_valid = (
         unprocessed_dt_df
-        .union(recent_df)
+        .union(lookback_df)
         .dropDuplicates()
     )
 
