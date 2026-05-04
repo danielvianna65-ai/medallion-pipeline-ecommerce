@@ -5,7 +5,9 @@
 Pipeline de dados distribuído baseado em arquitetura Medallion com modelagem dimensional na camada final.
 
 ---
-
+## 🧩 Diagrama Arquitetura
+![Diagrama de arquitetura](docs/diagrams/Arquitetura_Medallion_Pipeline.png)
+---
 ## 🧱 Infraestrutura
 
 Executado via Docker Compose:
