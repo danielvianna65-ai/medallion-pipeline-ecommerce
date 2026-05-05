@@ -37,8 +37,8 @@ Refined (modelo dimensional - Star Schema)
 
 ## 🟡 Landing
 
-* Ingestão incremental via **watermark**
 * Leitura via JDBC (MySQL)
+* Ingestão incremental via **watermark**
 * Escrita em Parquet particionado
 * Controle de estado via metadata em HDFS
 
@@ -46,18 +46,25 @@ Refined (modelo dimensional - Star Schema)
 
 ## 🔵 Raw
 
-* Conversão para Delta Lake
-* Batch incremental com **merge incremental**
-* Estratégia:
 
-  * backlog (dados não processados)
+* Batch incremental
+* Estratégia:
+  * unprocessed (dados não processados)
   * lookback (reprocessamento recente)
+
+
+* Schema enforcement
+* Colunas técnicas
 * Deduplicação por chave de negócio
+* Conversão para Delta Lake
+* Merge incremental 
+
 
 ---
 
 ## 🟢 Trusted
 
+* Batch incremental
 * Limpeza e padronização de dados
 * Validações:
 
@@ -65,7 +72,8 @@ Refined (modelo dimensional - Star Schema)
   * Email
   * Telefone
 * Flags de qualidade de dados
-* Merge incremental consistente
+* Delta Lake
+* Merge incremental 
 
 ---
 
@@ -89,7 +97,7 @@ Implementação de modelo dimensional (Star Schema):
 ## 📊 Características do Projeto
 
 * Pipeline incremental real (não full reload)
-* CDC com Delta Lake
+* Unprocessed com Delta Lake
 * SCD Tipo 2 implementado
 * Data Quality explícita
 * Arquitetura distribuída (Spark Cluster)
