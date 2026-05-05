@@ -64,7 +64,7 @@ WHERE data_transacao > watermark
 
 * Padronização de schema
 * Deduplicação
-* CDC com Delta Lake
+* Marge incremental com Delta Lake
 
 ### Estratégias implementadas:
 
