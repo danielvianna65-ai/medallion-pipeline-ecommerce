@@ -1,6 +1,8 @@
 # ======================================================
 # IMPORTS
 # ======================================================
+from itertools import count
+
 from pyspark.sql import SparkSession
 import pyspark.sql.functions as F
 from delta.tables import DeltaTable
@@ -31,6 +33,7 @@ spark = (
     .getOrCreate()
 )
 
+
 # ======================================================
 # READ TRUSTED
 # ======================================================
@@ -47,6 +50,9 @@ pag = (
     .filter("rn = 1")
     .drop("rn")
 )
+pagamentos_trusted = spark.read.format("delta").load(f"{base}/pagamentos")
+print("Contagem total de pagamentos na trusted:", pagamentos_trusted.count())
+print("Contagem de pagamentos após a lógica de row_number:", pag.count())
 
 w_ped = Window.partitionBy("id_pedido").orderBy(
     F.col("data_transacao").desc(),
@@ -59,6 +65,9 @@ ped = (
     .filter("rn = 1")
     .drop("rn")
 )
+pedidos_trusted = spark.read.format("delta").load(f"{base}/pedidos")
+print("Contagem total de pedidos na trusted:", pedidos_trusted.count())
+print("Contagem de pedidos após a lógica de row_number:", ped.count())
 
 # ======================================================
 # READ DIMENSIONS
@@ -76,6 +85,23 @@ df = (
     .join(ped.alias("p"), "id_pedido")
     .join(pag.alias("pg"), "id_pedido", "left")
 )
+
+# ======================================================
+# DEBUG - PERDA NO JOIN
+# ======================================================
+
+itens_ids = itens.select("id_item_pedido")
+
+df_join_ids = df.select("id_item_pedido")
+
+perdidos_join = itens_ids.subtract(df_join_ids)
+
+print("[DEBUG JOIN]")
+print(f"Total itens original: {itens_ids.count()}")
+print(f"Total após join: {df_join_ids.count()}")
+print(f"Registros perdidos no join: {perdidos_join.count()}")
+
+perdidos_join.show()
 
 df = df.select(
     "i.id_pedido",
@@ -138,14 +164,51 @@ if erros > 0:
     raise Exception(f"Erro de integridade na dim_data: {erros} registros inválidos")
 
 # ======================================================
-# DATA QUALITY
+# DATA QUALITY (REFATORADO)
 # ======================================================
-df = df.filter(
+
+df_invalid = df.filter(
+    F.col("sk_cliente").isNull() |
+    F.col("sk_produto").isNull() |
+    F.col("sk_pagamento").isNull() |
+    F.col("sk_data_pedido").isNull()
+)
+
+df_valid = df.filter(
     F.col("sk_cliente").isNotNull() &
     F.col("sk_produto").isNotNull() &
     F.col("sk_pagamento").isNotNull() &
     F.col("sk_data_pedido").isNotNull()
 )
+
+# ======================================================
+# LOG (observabilidade)
+# ======================================================
+
+total = df.count()
+validos = df_valid.count()
+invalidos = df_invalid.count()
+
+print(f"[DATA QUALITY]")
+print(f"Total entrada: {total}")
+print(f"Registros válidos: {validos}")
+print(f"Registros rejeitados: {invalidos}")
+
+# ======================================================
+# (OPCIONAL) SALVAR REJEITADOS
+# ======================================================
+
+if invalidos > 0:
+    df_invalid.write \
+        .format("delta") \
+        .mode("overwrite") \
+        .save("/data/04_refined/ecommerce/rejected_fato_vendas")
+
+# ======================================================
+# SEGUE PIPELINE COM df_valid
+# ======================================================
+
+df = df_valid
 
 # ======================================================
 # MÉTRICAS
