@@ -26,7 +26,7 @@ MySQL / CSV
    ↓
 Landing (ingestão incremental)
    ↓
-Raw (CDC + Delta Merge)
+Raw (Batch incremental + Delta Merge incremental)
    ↓
 Trusted (Data Quality + regras de negócio)
    ↓
@@ -47,7 +47,7 @@ Refined (modelo dimensional - Star Schema)
 ## 🔵 Raw
 
 * Conversão para Delta Lake
-* CDC com **merge incremental**
+* Batch incremental com **merge incremental**
 * Estratégia:
 
   * backlog (dados não processados)
