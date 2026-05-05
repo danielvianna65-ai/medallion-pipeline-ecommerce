@@ -120,15 +120,16 @@ WHERE data_transacao > watermark
 * Surrogate keys
 * Integridade referencial
 * Métricas derivadas
-* CDC aplicado também na camada analítica
-
 ---
 
-## 🔁 Estratégia Incremental Global
+## 🔁 Estratégia Incremental
 
-Aplicada em todas as camadas:
+Aplicada na camada landing:
+* Ingestão incremental via watermark
 
-* Identificação de partições novas
+Aplicada nas camadas raw e trusted:
+
+* Identificação de partições novas (Unprocessed)
 * Reprocessamento controlado (lookback)
 * Merge incremental com Delta
 
