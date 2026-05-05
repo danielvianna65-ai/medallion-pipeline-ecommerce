@@ -13,7 +13,7 @@ from pyspark.sql.window import Window
 table = "clientes"
 PRIMARY_KEY = "id_cliente"
 WATERMARK_COL = "data_transacao"
-LOOKBACK_DAYS = 2
+LOOKBACK_DAYS = 0
 
 # =====================================================
 # Paths

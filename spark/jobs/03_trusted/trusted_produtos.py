@@ -12,7 +12,7 @@ from delta.tables import DeltaTable
 table = "produtos"
 PRIMARY_KEY = "id_produto"
 WATERMARK_COL = "data_transacao"
-LOOKBACK_DAYS = 2
+LOOKBACK_DAYS = 0
 
 # =====================================================
 # Paths

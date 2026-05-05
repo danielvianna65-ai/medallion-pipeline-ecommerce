@@ -6,7 +6,7 @@ Pipeline de dados distribuído baseado em arquitetura Medallion com modelagem di
 
 ---
 ## 🧩 Diagrama Arquitetura
-![Diagrama de arquitetura](./diagrams/Arquitetura_Medallion_Pipeline.png)
+![Diagrama de arquitetura](diagrams/arquitetura_medallion_pipeline.png)
 ---
 ## 🧱 Infraestrutura
 
@@ -58,7 +58,7 @@ WHERE data_transacao > watermark
 
 ---
 
-## 🔵 Raw (CDC Layer)
+## 🔵 Raw (Batch incremental)
 
 ### Funções:
 
@@ -68,9 +68,9 @@ WHERE data_transacao > watermark
 
 ### Estratégias implementadas:
 
-* Backlog processing
-* Lookback window
-* Merge incremental (upsert)
+* Detecção de dados não processados (left anti join)
+* Janela de lookback determinística (últimas partições)
+* Merge incremental (upsert baseado em chave de negócio)
 
 ### Armazenamento:
 
@@ -100,10 +100,8 @@ WHERE data_transacao > watermark
 
 ## 🟣 Refined (Analytics Layer)
 
-### Modelo: Star Schema
-
 ---
-## 🧩 Modelo Dimensional 
+## 🧩 Modelo Dimensional (Star Schema)
 ![Modelo Dimensional](./diagrams/modelo_dimensional.png)
 ---
 #### Dimensões:
@@ -159,7 +157,14 @@ Aplicada em todas as camadas:
 
 ## 🚀 Evoluções Possíveis
 
-* Data Quality framework (Great Expectations)
-* Orquestração distribuída (Celery/Kubernetes)
-* Camada de serving (API/BI)
-* Observabilidade (metrics/logs)
+- **Data Quality Framework (Great Expectations)**  
+  Evolução para validações formais de qualidade de dados com data contracts, incluindo checks de schema, nullabilidade, ranges e regras de negócio nas camadas Raw e Trusted.
+
+- **Orquestração Distribuída (Celery / Kubernetes)**  
+  Escalonamento da orquestração do Apache Airflow para execução distribuída (CeleryExecutor ou KubernetesExecutor), aumentando paralelismo, resiliência e throughput dos pipelines.
+
+- **Camada de Serving (API / BI)**  
+  Exposição dos dados da camada Refined via ferramentas de BI (ex: :contentReference[oaicite:0]{index=0}) ou APIs (ex: :contentReference[oaicite:1]{index=1}), habilitando consumo por usuários finais e aplicações.
+
+- **Observabilidade (Métricas e Logs)**  
+  Implementação de monitoramento estruturado com coleta de métricas de execução (tempo, falhas, retries) e centralização de logs, possibilitando alertas e análise operacional.
