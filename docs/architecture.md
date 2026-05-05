@@ -102,6 +102,10 @@ WHERE data_transacao > watermark
 
 ### Modelo: Star Schema
 
+---
+## 🧩 Modelo Dimensional 
+![Modelo Dimensional](./diagrams/modelo_dimensional.png)
+---
 #### Dimensões:
 
 * dim_cliente (SCD Tipo 2)
