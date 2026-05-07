@@ -283,10 +283,13 @@ Fluxo recomendado:
 
 # 📚 Documentação Técnica
 
+A documentação técnica do projeto foi separada por responsabilidade para facilitar navegação, manutenção e aprofundamento arquitetural.
+
 | Documento | Descrição |
 |---|---|
-| `docs/architecture.md` | Arquitetura detalhada |
-| `docs/project_structure.md` | Estrutura completa do projeto |
+| `docs/architecture.md` | Documentação completa da arquitetura Medallion, estratégias incrementais, infraestrutura distribuída e modelagem dimensional |
+| `docs/project_structure.md` | Organização estrutural do projeto, separação por camadas, DAGs, jobs Spark e componentes da infraestrutura |
+| `docs/decisions.md` | Registro das principais decisões arquiteturais (ADRs), incluindo motivações, benefícios e tradeoffs técnicos |
 
 ---
 
