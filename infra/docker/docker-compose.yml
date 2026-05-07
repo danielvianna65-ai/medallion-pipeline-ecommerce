@@ -20,7 +20,7 @@ services:
   # AIRFLOW INIT
   # =========================
   airflow-init:
-    image: medallion-airflow:2.6
+    image: medallion-airflow:2.10.5
     depends_on:
       airflow-db:
         condition: service_started
@@ -191,4 +191,3 @@ volumes:
   namenode-data:
   datanode-data:
   postgres-db-volume:
-  mysql-data:
