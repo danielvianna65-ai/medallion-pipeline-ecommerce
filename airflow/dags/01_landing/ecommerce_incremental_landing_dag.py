@@ -76,8 +76,10 @@ with DAG(
             # Configurações Spark / MySQL
             # ==========================
             conf={
-                "spark.executor.memory": "2g",
+                "spark.executor.instances": "1",
+                "spark.executor.memory": "3g",
                 "spark.executor.cores": "2",
+                "spark.cores.max": "2",
                 "spark.driver.memory": "1g",
                 "spark.sql.shuffle.partitions": "8",
                 "spark.hadoop.dfs.replication": "1",

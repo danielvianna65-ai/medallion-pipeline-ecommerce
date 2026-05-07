@@ -69,7 +69,7 @@ if watermark:
     query = f"""
         (SELECT *
          FROM {table}
-         WHERE {watermark_col} > TIMESTAMP('{watermark}')) AS inc
+         WHERE {watermark_col} >= TIMESTAMP('{watermark}')) AS inc
     """
 else:
     query = f"(SELECT * FROM {table}) AS full"

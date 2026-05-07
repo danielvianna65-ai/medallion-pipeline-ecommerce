@@ -174,7 +174,7 @@ services:
       - ../../infra/hadoop:/opt/hadoop/etc/hadoop
     environment:
       - HADOOP_CONF_DIR=/opt/hadoop/etc/hadoop
-      - SPARK_WORKER_MEMORY=10g
+      - SPARK_WORKER_MEMORY=12g
       - SPARK_WORKER_CORES=8
       - PYSPARK_PYTHON=python3
       - PYSPARK_DRIVER_PYTHON=python3

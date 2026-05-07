@@ -17,9 +17,11 @@ DIM_JOBS = [
 ]
 
 SPARK_CONF = {
+    "spark.executor.instances": "1",
     "spark.master": "spark://spark-master:7077",
-    "spark.executor.memory": "2g",
+    "spark.executor.memory": "3g",
     "spark.executor.cores": "2",
+    "spark.cores.max": "2",
     "spark.sql.shuffle.partitions": "8",
     "spark.hadoop.dfs.replication": "1",
     "spark.sql.extensions": "io.delta.sql.DeltaSparkSessionExtension",

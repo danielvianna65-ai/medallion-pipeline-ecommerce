@@ -52,8 +52,10 @@ with DAG(
             # Configurações Spark / Delta
             # ==========================
             conf={
-                "spark.executor.memory": "2g",
+                "spark.executor.instances": "1",
+                "spark.executor.memory": "3g",
                 "spark.executor.cores": "2",
+                "spark.cores.max": "2",
                 "spark.sql.shuffle.partitions": "8",
                 "spark.hadoop.dfs.replication": "1",
                 "spark.sql.extensions": "io.delta.sql.DeltaSparkSessionExtension",
