@@ -1,115 +1,315 @@
-# 🛒 Medallion Pipeline E-commerce
+# 🛒 Medallion Pipeline - E-commerce
 
-## 📌 Visão Geral
-
-Este projeto implementa um pipeline de engenharia de dados end-to-end baseado na arquitetura **Medallion**, com ingestão incremental, processamento distribuído e modelagem dimensional.
-
-O pipeline processa dados de e-commerce provenientes de um banco MySQL e fontes auxiliares (CSV), transformando-os em um modelo analítico pronto para consumo.
+Pipeline de Engenharia de Dados end-to-end baseado em arquitetura Medallion, utilizando Apache Spark, Delta Lake, Apache Airflow e HDFS para processamento incremental distribuído e construção de um modelo dimensional analítico.
 
 ---
 
-## 🧱 Stack Tecnológica
+# 📌 Visão Geral
 
-* Apache Airflow (orquestração)
-* Apache Spark 3.5.8 (processamento distribuído)
-* Delta Lake (armazenamento e merge incremental)
-* HDFS (data lake)
-* Docker Compose (infraestrutura)
-* Python (PySpark)
+Este projeto simula uma plataforma moderna de dados para e-commerce, implementando um pipeline incremental distribuído com separação em camadas:
+
+```text
+Landing → Raw → Trusted → Refined
+```
+
+O pipeline realiza:
+
+- Ingestão incremental via watermark
+- Processamento distribuído com Spark Cluster
+- Merge incremental com Delta Lake
+- Estratégia híbrida Unprocessed + Lookback
+- Data Quality explícita
+- Modelagem dimensional (Star Schema)
+- SCD Tipo 2 em dimensões analíticas
 
 ---
 
-## 🔄 Fluxo do Pipeline
+# 🧩 Arquitetura
+
+![Arquitetura Medallion](docs/diagrams/arquitetura_medallion_pipeline.png)
+
+---
+
+# 🧱 Stack Tecnológica
+
+| Tecnologia | Finalidade |
+|---|---|
+| Apache Airflow 2.10.5 | Orquestração |
+| Apache Spark 3.5.8 (Standalone Cluster) | Processamento distribuído |
+| Delta Lake 3.2.0 | ACID + Merge incremental |
+| Hadoop HDFS 3.2.1 | Data Lake distribuído |
+| PostgreSQL 15 | Metadata do Airflow |
+| Docker Compose | Infraestrutura local |
+| Python 3.10.12 | Desenvolvimento |
+
+---
+
+# 🔄 Fluxo do Pipeline
 
 ```text
 MySQL / CSV
-   ↓
-Landing (ingestão incremental)
-   ↓
-Raw (Batch incremental + Delta Merge incremental)
-   ↓
-Trusted (Data Quality + regras de negócio)
-   ↓
-Refined (modelo dimensional - Star Schema)
+      ↓
+Landing
+(Ingestão incremental)
+      ↓
+Raw
+(Batch incremental + Delta Merge)
+      ↓
+Trusted
+(Data Quality + Regras de Negócio)
+      ↓
+Refined
+(Modelo Dimensional)
 ```
 
 ---
 
+# 🏛️ Arquitetura em Camadas
+
 ## 🟡 Landing
 
-* Leitura via JDBC (MySQL)
-* Ingestão incremental via **watermark**
-* Escrita em Parquet particionado
-* Controle de estado via metadata em HDFS
+Camada responsável pela ingestão incremental dos dados.
+
+### Características
+
+- Leitura JDBC (MySQL)
+- Ingestão incremental via watermark
+- Persistência em Parquet
+- Controle incremental via metadata em HDFS
 
 ---
 
 ## 🔵 Raw
 
+Camada responsável pela padronização e consistência incremental.
 
-* Batch incremental
-* Estratégia:
-  * unprocessed (dados não processados)
-  * lookback (reprocessamento recente)
+### Características
 
-
-* Schema enforcement
-* Colunas técnicas
-* Deduplicação por chave de negócio
-* Conversão para Delta Lake
-* Merge incremental 
-
+- Batch incremental
+- Schema enforcement
+- Deduplicação
+- Merge incremental com Delta Lake
+- Colunas técnicas
+- Estratégia Unprocessed + Lookback
 
 ---
 
 ## 🟢 Trusted
 
-* Batch incremental
-* Limpeza e padronização de dados
-* Validações:
+Camada responsável pela qualidade e confiabilidade dos dados.
 
-  * CPF (regra oficial)
-  * Email
-  * Telefone
-* Flags de qualidade de dados
-* Delta Lake
-* Merge incremental 
+### Validações
+
+- CPF
+- Email
+- Telefone
+- Regras de negócio
+- Flags de qualidade
 
 ---
 
 ## 🟣 Refined
 
-Implementação de modelo dimensional (Star Schema):
+Camada analítica baseada em modelo dimensional.
 
 ### Dimensões
 
-* Cliente (SCD Tipo 2)
-* Produto (SCD Tipo 2)
-* Pagamento
-* Data
+- dim_cliente (SCD Tipo 2)
+- dim_produto (SCD Tipo 2)
+- dim_pagamento
+- dim_data
 
 ### Fato
 
-* Fato de vendas (nível item do pedido)
+- fato_vendas
+
+### Granularidade
+
+```text
+1 linha = 1 item de pedido
+```
 
 ---
 
-## 📊 Características do Projeto
+# 🧠 Estratégia Incremental
 
-* Pipeline incremental real (não full reload)
-* Unprocessed com Delta Lake
-* SCD Tipo 2 implementado
-* Data Quality explícita
-* Arquitetura distribuída (Spark Cluster)
-* Separação clara por camadas
+O pipeline implementa uma estratégia incremental híbrida para garantir:
+
+- Reprocessamento controlado
+- Idempotência
+- Tratamento de late arriving data
+- Eficiência operacional
+
+## Estratégias utilizadas
+
+### Watermark
+
+Utilizado na Landing para captura incremental:
+
+```sql
+WHERE data_transacao > watermark
+```
+
+### Unprocessed
+
+Identificação de registros ainda não processados via comparação incremental.
+
+### Lookback
+
+Reprocessamento determinístico das últimas partições para garantir consistência.
+
+### Delta Merge
+
+Operações ACID com merge incremental utilizando Delta Lake.
 
 ---
 
-## 🚀 Objetivo
+# 📊 Modelo Dimensional
 
-Demonstrar uma arquitetura moderna de engenharia de dados, próxima de cenários reais de produção, com foco em:
+![Modelo Dimensional](docs/diagrams/modelo_dimensional.png)
 
-* Escalabilidade
-* Governança
-* Qualidade de dados
-* Modelagem analítica
+---
+
+# ⚙️ Orquestração
+
+O pipeline é orquestrado via Apache Airflow utilizando DAGs desacopladas por camada.
+
+## Responsabilidades
+
+- Agendamento
+- Dependências
+- Observabilidade
+- Retries
+- Logs centralizados
+
+---
+
+# 🗂️ Estrutura do Projeto
+
+```text
+medallion-pipeline-ecommerce/
+├── airflow/
+├── spark/
+├── infra/
+├── docs/
+└── README.md
+```
+
+📄 Estrutura completa disponível em:
+
+```text
+docs/project_structure.md
+```
+
+---
+
+# 🚀 Como Executar
+
+## Subir infraestrutura
+
+```bash
+docker compose -f infra/docker/docker-compose.yml up -d
+```
+
+---
+
+## Acessar interfaces
+
+| Serviço | URL |
+|---|---|
+| Airflow | http://localhost:8080 |
+| Spark Master | http://localhost:8081 |
+| HDFS Namenode | http://localhost:9870 |
+
+---
+
+## Executar pipeline
+
+As DAGs podem ser executadas diretamente via interface do Airflow.
+
+Fluxo recomendado:
+
+```text
+01_landing
+   ↓
+02_raw
+   ↓
+03_trusted
+   ↓
+04_refined
+```
+
+---
+
+# 📈 Características do Projeto
+
+- Pipeline incremental real
+- Processamento distribuído
+- Delta Lake
+- Merge incremental
+- SCD Tipo 2
+- Star Schema
+- Data Quality
+- Arquitetura Medallion
+- Spark Standalone Cluster
+- Separação clara por camadas
+- Reprocessamento controlado
+- Governança de dados
+
+---
+
+# 📌 Decisões Arquiteturais
+
+| Decisão | Motivo |
+|---|---|
+| Delta Lake | Merge incremental + ACID |
+| Watermark | Ingestão incremental eficiente |
+| Spark Cluster | Processamento distribuído |
+| SCD Tipo 2 | Histórico de entidades |
+| Star Schema | Performance analítica |
+| Docker Compose | Reprodutibilidade |
+
+---
+
+# 🔍 Observabilidade
+
+- Logs centralizados via Airflow
+- Monitoramento de DAGs
+- Controle incremental por metadata
+- Arquivos `_SUCCESS`
+- Spark UI para análise de jobs
+
+---
+
+# 📚 Documentação Técnica
+
+| Documento | Descrição |
+|---|---|
+| `docs/architecture.md` | Arquitetura detalhada |
+| `docs/project_structure.md` | Estrutura completa do projeto |
+
+---
+
+# 🚀 Evoluções Futuras
+
+- Great Expectations
+- Metadata-driven pipelines
+- Kubernetes Executor
+- Camada de Serving
+- Observabilidade avançada
+- Testes automatizados
+- CI/CD
+
+---
+
+# 🎯 Objetivo
+
+Demonstrar a construção de uma arquitetura moderna de engenharia de dados próxima de cenários reais de produção, com foco em:
+
+- Escalabilidade
+- Governança
+- Confiabilidade
+- Processamento incremental
+- Modelagem analítica
+- Qualidade de dados
+- Arquitetura distribuída
