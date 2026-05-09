@@ -21,7 +21,7 @@ O objetivo da arquitetura é garantir:
 
 # 🧩 Arquitetura Geral
 
-![Arquitetura Medallion](diagrams/Arquitetura_Medallion_Pipeline.png)
+![Arquitetura Medallion](diagrams/arquitetura_medallion_pipeline.png)
 
 ---
 
