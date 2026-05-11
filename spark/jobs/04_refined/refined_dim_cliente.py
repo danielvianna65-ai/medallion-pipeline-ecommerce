@@ -8,15 +8,15 @@ from delta.tables import DeltaTable
 # =====================================================
 # Paths
 # =====================================================
-base = "/data/03_trusted/ecommerce"
-refined = "/data/04_refined/ecommerce/dim_cliente"
+trusted_base_path = "/data/03_trusted/ecommerce"
+refined_path = "/data/04_refined/ecommerce/dim_cliente"
 
 # =====================================================
 # Spark Session Delta
 # =====================================================
 spark = (
     SparkSession.builder
-    .appName("dim_cliente")
+    .appName("refined_dim_cliente")
     .config("spark.hadoop.fs.defaultFS", "hdfs://namenode:8020")
     .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
     .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
@@ -26,15 +26,15 @@ spark = (
 # ======================================================
 # READ TRUSTED /ENRICHMENT
 # ======================================================
-dfc = spark.read.format("delta").load(f"{base}/clientes")
-dfe = spark.read.format("delta").load(f"{base}/clientes_enrichment")
+trusted_customers_df = spark.read.format("delta").load(f"{trusted_base_path}/clientes")
+trusted_customers_enrichment_df = spark.read.format("delta").load(f"{trusted_base_path}/clientes_enrichment")
 
 # ======================================================
 # JOIN
 # ======================================================
-df = (
-    dfc.alias("c")
-    .join(dfe.alias("e"), "cpf", "left")
+customer_dimension_base_df = (
+    trusted_customers_df.alias("c")
+    .join(trusted_customers_enrichment_df.alias("e"), "cpf", "left")
     .select(
         F.col("c.id_cliente"),
         F.col("c.cpf"),
@@ -50,19 +50,19 @@ df = (
 # ======================================================
 # COLUMNS SCD2
 # ======================================================
-df = df.withColumn("dt_inicio", F.col("ingestion_ts"))
-df = df.withColumn("dt_fim", F.lit(None).cast("timestamp"))
-df = df.withColumn("is_current", F.lit(True))
+scd2_customers_df = customer_dimension_base_df.withColumn("dt_inicio", F.col("ingestion_ts"))
+scd2_customers_df = scd2_customers_df.withColumn("dt_fim", F.lit(None).cast("timestamp"))
+scd2_customers_df = scd2_customers_df.withColumn("is_current", F.lit(True))
 
 # ======================================================
 # SK + HASH
 # ======================================================
-df = df.withColumn(
+scd2_customers_df = scd2_customers_df.withColumn(
     "sk_cliente",
     F.abs(F.hash("id_cliente", "dt_inicio")).cast("bigint")
 )
 
-df = df.withColumn(
+scd2_customers_df = scd2_customers_df.withColumn(
     "hash_diff",
     F.sha2(
         F.concat_ws("||",
@@ -78,7 +78,7 @@ df = df.withColumn(
 # =====================================================
 # SELECT
 # =====================================================
-df = df.select(
+refined_customers_df = scd2_customers_df.select(
     "id_cliente",
     "cpf",
     "sk_cliente",
@@ -95,26 +95,26 @@ df = df.select(
 # ======================================================
 # WRITE (SCD2 MERGE)
 # ======================================================
-if not DeltaTable.isDeltaTable(spark, refined):
+if not DeltaTable.isDeltaTable(spark, refined_path):
 
     (
-         df.write
+         refined_customers_df.write
          .format("delta")
          .mode("overwrite")
-         .save(refined)
+         .save(refined_path)
     )
 
 else:
 
-    delta = DeltaTable.forPath(spark, refined)
+    dim_customers_delta_table = DeltaTable.forPath(spark, refined_path)
 
     # ==================================================
     # 1. EXPIRAR REGISTROS ATUAIS (CHANGE DETECTION)
     # ==================================================
     (
-        delta.alias("t")
+        dim_customers_delta_table.alias("t")
         .merge(
-            df.alias("s"),
+            refined_customers_df.alias("s"),
             "t.cpf = s.cpf AND t.is_current = true"
         )
         .whenMatchedUpdate(
@@ -130,10 +130,10 @@ else:
     # ==================================================
     # 2. IDENTIFICAR NOVOS / ALTERADOS (CDC EXPLÍCITO)
     # ==================================================
-    df_new = (
-        df.alias("s")
+    new_customer_versions_df = (
+        refined_customers_df.alias("s")
         .join(
-            delta.toDF().alias("t"),
+            dim_customers_delta_table.toDF().alias("t"),
             (F.col("s.cpf") == F.col("t.cpf")) & (F.col("t.is_current") == True),
             "left"
         )
@@ -148,9 +148,9 @@ else:
     # 3. INSERIR NOVAS VERSÕES
     # ==================================================
     (
-        delta.alias("t")
+        dim_customers_delta_table.alias("t")
         .merge(
-            df_new.alias("s"),
+            new_customer_versions_df.alias("s"),
             "t.cpf = s.cpf AND t.is_current = true"
         )
         .whenNotMatchedInsertAll()

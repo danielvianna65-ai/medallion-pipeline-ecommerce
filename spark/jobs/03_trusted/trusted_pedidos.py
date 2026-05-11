@@ -67,7 +67,7 @@ if is_bootstrap:
 
     print("[trusted] Bootstrap FULL")
 
-    df_inc = (
+    incremental_extract_df = (
         spark.read
         .parquet(raw_path)
     )
@@ -77,12 +77,12 @@ if is_bootstrap:
 # =====================================================
 else:
 
-    print("[trusted] Incremental CDC-aware (Unprocessed + Lookback)")
+    print("[trusted] Incremental (Unprocessed + Lookback)")
 
     # -------------------------------------------------
     # Partitions already processed
     # -------------------------------------------------
-    trusted_dt_df = (
+    processed_partitions_df = (
         spark.read
         .format("delta")
         .load(trusted_path)
@@ -101,7 +101,7 @@ else:
     # -------------------------------------------------
     # unprocessed
     # -------------------------------------------------
-    unprocessed_dt_df  = raw_dt_df.join(trusted_dt_df, ["dt"], "left_anti")
+    unprocessed_dt_df  = raw_dt_df.join(processed_partitions_df, ["dt"], "left_anti")
 
     # -------------------------------------------------
     # DATA-BASED LOOKBACK
@@ -117,7 +117,7 @@ else:
     # -------------------------------------------------
     # UNION FINAL OF PARTITIONS
     # -------------------------------------------------
-    dt_valid = (
+    processing_partitions_df = (
         unprocessed_dt_df
         .union(lookback_df)
         .dropDuplicates()
@@ -126,18 +126,18 @@ else:
     # -------------------------------------------------
     # single collection
     # -------------------------------------------------
-    dt_rows = dt_valid.collect()
+    processing_partition_rows = processing_partitions_df.collect()
 
-    qtd = len(dt_rows)
-    dt_list = [r.dt for r in dt_rows]
-    partitions = sorted(dt_list)
+    processing_partition_count = len(processing_partition_rows)
+    processing_partition_list = [r.dt for r in processing_partition_rows]
+    sorted_processing_partitions = sorted(processing_partition_list)
 
-    print(f"[trusted] Partições para processamento: {qtd}")
+    print(f"[trusted] Partições para processamento: {processing_partition_count}")
     print("[trusted] Lista de partições:")
-    for p in partitions:
+    for p in sorted_processing_partitions:
         print(f" - {p}")
 
-    if qtd == 0:
+    if processing_partition_count == 0:
         print("[trusted] Nada para processar.")
         spark.stop()
         exit(0)
@@ -145,44 +145,16 @@ else:
     # -------------------------------------------------
     # EFFICIENT READING (NO JOIN)
     # -------------------------------------------------
-    df_inc = (
+    incremental_extract_df = (
         spark.read
         .parquet(raw_path)
-        .filter(F.col("dt").isin(dt_list))
-    )
-
-    # -------------------------------------------------
-    # single collection
-    # -------------------------------------------------
-    dt_rows = dt_valid.collect()
-
-    qtd = len(dt_rows)
-    dt_list = [r.dt for r in dt_rows]
-    partitions = sorted(dt_list)
-
-    print(f"[trusted] Partições para processamento: {qtd}")
-    print("[trusted] Lista de partições:")
-    for p in partitions:
-        print(f" - {p}")
-
-    if qtd == 0:
-        print("[trusted] Nada para processar.")
-        spark.stop()
-        exit(0)
-
-    # -------------------------------------------------
-    # EFFICIENT READING (NO JOIN)
-    # -------------------------------------------------
-    df_inc = (
-        spark.read
-        .parquet(raw_path)
-        .filter(F.col("dt").isin(dt_list))
+        .filter(F.col("dt").isin(processing_partition_list))
     )
 
 # =====================================================
 # CLEANING
 # =====================================================
-df_clean = df_inc.select(
+normalized_customers_df = incremental_extract_df.select(
 
     "id_pedido",
     "id_cliente",
@@ -199,16 +171,14 @@ df_clean = df_inc.select(
 # =====================================================
 # DATA QUALITY
 # =====================================================
-df_clean = (
-    df_clean
+validated_customers_df = (
+    normalized_customers_df
 
-    # valor válido
     .withColumn(
         "valor_valido",
         F.col("valor_total") >= 0
     )
 
-    # status válido
     .withColumn(
         "status_valido",
         F.col("status_pedido").isin(
@@ -216,7 +186,6 @@ df_clean = (
         )
     )
 
-    # data_pedido válida
     .withColumn(
         "data_pedido_valida",
         F.col("data_pedido").isNotNull()
@@ -226,19 +195,19 @@ df_clean = (
 # ======================================================
 # Data Label
 # ======================================================
-df_clean = df_clean.withColumn(
+labeled_customers_df = validated_customers_df.withColumn(
     "processing_trusted",
     F.current_timestamp()
 )
 
 # =====================================================
-# Dedupe determinístic
+# Deterministic Dedupe
 # =====================================================
-window_spec = Window.partitionBy(PRIMARY_KEY).orderBy(F.col(WATERMARK_COL).desc())
+customer_deduplication_window = Window.partitionBy(PRIMARY_KEY).orderBy(F.col(WATERMARK_COL).desc())
 
-df_clean = (
-    df_clean
-    .withColumn("rn", F.row_number().over(window_spec))
+deduplicated_customers_df = (
+    labeled_customers_df
+    .withColumn("rn", F.row_number().over(customer_deduplication_window))
     .filter(F.col("rn") == 1)
     .drop("rn")
 )
@@ -248,10 +217,10 @@ df_clean = (
 # ======================================================
 if not DeltaTable.isDeltaTable(spark, trusted_path):
 
-    print("[Trusted] Bootstrap inicial")
+    print(f"[Trusted][{table}] Bootstrap inicial")
 
     (
-        df_clean.write
+        deduplicated_customers_df.write
         .format("delta")
         .mode("overwrite")
         .partitionBy("dt")
@@ -260,36 +229,36 @@ if not DeltaTable.isDeltaTable(spark, trusted_path):
 
 else:
 
-    print("[Trusted] Executando MERGE incremental")
+    print(f"[Trusted][{table}] Executando MERGE incremental")
 
     print(
-        "[Trusted] Qtd registros antes do merge:",
+        f"[Trusted][{table}] Qtd registros antes do merge:",
         spark.read.format("delta").load(trusted_path).count()
     )
 
-    delta_table = DeltaTable.forPath(spark, trusted_path)
+    trusted_customers_delta_table = DeltaTable.forPath(spark, trusted_path)
 
-    update_set = {c: f"source.{c}" for c in df_clean.columns}
-    insert_values = {c: f"source.{c}" for c in df_clean.columns}
+    update_set = {c: f"source.{c}" for c in deduplicated_customers_df.columns}
+    insert_set = {c: f"source.{c}" for c in deduplicated_customers_df.columns}
 
     (
-        delta_table.alias("target")
+        trusted_customers_delta_table.alias("target")
         .merge(
-            df_clean.alias("source"),
-            f"target.{PRIMARY_KEY} = source.{PRIMARY_KEY}"
+            deduplicated_customers_df.alias("source"),
+            f"target.{PRIMARY_KEY} = source.{PRIMARY_KEY} AND target.dt = source.dt"
         )
         .whenMatchedUpdate(
             condition=f"source.{WATERMARK_COL} > target.{WATERMARK_COL}",
             set=update_set
         )
-        .whenNotMatchedInsert(values=insert_values)
+        .whenNotMatchedInsert(values=insert_set)
         .execute()
     )
 
-print("[Trusted] MERGE concluído")
+print(f"[Trusted][{table}] MERGE concluído")
 
 print(
-    "[Trusted] Qtd registros após o merge:",
+    f"[Trusted][{table}] Qtd registros após o merge:",
     spark.read.format("delta").load(trusted_path).count()
 )
 

@@ -4,8 +4,6 @@
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import current_timestamp, lit, col
 from delta.tables import DeltaTable
-from pyspark.sql.types import StructType, StructField
-from pyspark.sql.types import StringType, IntegerType, DecimalType
 
 # =====================================================
 # Config
@@ -36,7 +34,7 @@ spark = (
 print(f"[RAW][{table}] Source: {landing_path}")
 print(f"[RAW][{table}] Target: {raw_path}")
 
-df_inc = (
+landing_extract_df = (
         spark.read
         .option("mode", "FAILFAST")
         .parquet(landing_path)
@@ -45,12 +43,12 @@ df_inc = (
 # =====================================================
 # DROP DUPLICATES (CPF)
 # =====================================================
-df_inc = df_inc.dropDuplicates(["cpf"])
+deduplicated_customers_df = landing_extract_df.dropDuplicates(["cpf"])
 
 # =====================================================
 # SCHEMA
 # =====================================================
-df_inc = df_inc.select(
+standardized_customers_df = deduplicated_customers_df.select(
         col("cpf").cast("string"),
         col("nome").cast("string"),
         col("email").cast("string"),
@@ -61,13 +59,13 @@ df_inc = df_inc.select(
     )
 
 print(f"[RAW][{table}] Schema inferido explicitamente")
-df_inc.printSchema()
+standardized_customers_df.printSchema()
 
-# =====================================================
-# METADATA ENRICHMENT
-# =====================================================
-df_inc = (
-    df_inc
+# ======================================================
+# Data Label
+# ======================================================
+labeled_customers_df = (
+    standardized_customers_df
     .withColumn("ingestion_ts", current_timestamp())
     .withColumn("source_system", lit("partner_api"))
 )
@@ -83,7 +81,7 @@ if is_bootstrap:
     print(f"[RAW][{table}] Primeira carga → criando Delta")
 
     (
-        df_inc.write
+        labeled_customers_df.write
         .format("delta")
         .mode("overwrite")
         .partitionBy("dt")
@@ -125,7 +123,7 @@ else:
     (
         delta_table.alias("target")
         .merge(
-            df_inc.alias("source"),
+            labeled_customers_df.alias("source"),
             "target.cpf = source.cpf"
         )
         .whenMatchedUpdate(

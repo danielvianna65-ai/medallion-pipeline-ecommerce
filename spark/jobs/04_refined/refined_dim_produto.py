@@ -8,16 +8,16 @@ from delta.tables import DeltaTable
 # =====================================================
 # Paths
 # =====================================================
-prod = "/data/03_trusted/ecommerce/produtos"
-cat = "/data/03_trusted/ecommerce/categorias"
-refined = "/data/04_refined/ecommerce/dim_produto"
+trusted_products_path = "/data/03_trusted/ecommerce/produtos"
+trusted_categories_path = "/data/03_trusted/ecommerce/categorias"
+refined_product_dimension_path = "/data/04_refined/ecommerce/dim_produto"
 
 # =====================================================
 # Spark Session Delta
 # =====================================================
 spark = (
     SparkSession.builder
-    .appName("dim_produto_scd2")
+    .appName("refined_dim_produto")
     .config("spark.hadoop.fs.defaultFS", "hdfs://namenode:8020")
     .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
     .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
@@ -27,16 +27,16 @@ spark = (
 # =====================================================
 # READ TRUSTED/REFINED
 # =====================================================
-df_prod = spark.read.format("delta").load(prod)
-dim_cat = spark.read.format("delta").load(cat)
+trusted_products_df = spark.read.format("delta").load(trusted_products_path)
+trusted_categories_df = spark.read.format("delta").load(trusted_categories_path)
 
 # =====================================================
 # JOIN
 # =====================================================
-df = (
-    df_prod.alias("p")
+product_dimension_base_df = (
+    trusted_products_df.alias("p")
     .join(
-        dim_cat.alias("c"),
+        trusted_categories_df.alias("c"),
         F.col("p.id_categoria") == F.col("c.id_categoria"),
         "left"
     )
@@ -45,7 +45,7 @@ df = (
 # =====================================================
 # SELECT / JOIN
 # =====================================================
-df = df.select(
+product_dimension_base_df = product_dimension_base_df.select(
     "p.id_produto",
     "p.nome_produto",
     "c.nome_categoria",
@@ -58,7 +58,7 @@ df = df.select(
 # ======================================================
 # HASH
 # ======================================================
-df = df.withColumn(
+scd2_products_df = product_dimension_base_df.withColumn(
     "hash_diff",
     F.sha2(
         F.concat_ws("||",
@@ -75,14 +75,14 @@ df = df.withColumn(
 # ======================================================
 # COLUMNS SCD2
 # ======================================================
-df = df.withColumn("dt_inicio", F.col("ingestion_ts")) \
+scd2_products_df = scd2_products_df.withColumn("dt_inicio", F.col("ingestion_ts")) \
        .withColumn("dt_fim", F.lit(None).cast("timestamp")) \
        .withColumn("is_current", F.lit(True))
 
 # =====================================================
 # SK
 # =====================================================
-df = df.withColumn(
+scd2_products_df = scd2_products_df.withColumn(
     "sk_produto",
     F.abs(F.hash("id_produto", "dt_inicio")).cast("bigint")
 )
@@ -90,7 +90,7 @@ df = df.withColumn(
 # ======================================================
 # FINAL SELECT
 # ======================================================
-df = df.select(
+refined_products_df = scd2_products_df.select(
     "id_produto",
     "sk_produto",
     "nome_produto",
@@ -107,26 +107,26 @@ df = df.select(
 # ======================================================
 # WRITE (SCD2 MERGE)
 # ======================================================
-if not DeltaTable.isDeltaTable(spark, refined):
+if not DeltaTable.isDeltaTable(spark, refined_product_dimension_path):
 
     (
-        df.write
+        refined_products_df.write
         .format("delta")
         .mode("overwrite")
-        .save(refined)
+        .save(refined_product_dimension_path)
     )
 
 else:
 
-    delta = DeltaTable.forPath(spark, refined)
+    dim_products_delta_table = DeltaTable.forPath(spark, refined_product_dimension_path)
 
     # ==================================================
     # 1. EXPIRAR REGISTROS ATUAIS (CHANGE DETECTION)
     # ==================================================
     (
-        delta.alias("t")
+        dim_products_delta_table.alias("t")
         .merge(
-            df.alias("s"),
+            refined_products_df.alias("s"),
             "t.id_produto = s.id_produto AND t.is_current = true"
         )
         .whenMatchedUpdate(
@@ -142,10 +142,10 @@ else:
     # ==================================================
     # 2. IDENTIFICAR NOVOS / ALTERADOS (CDC EXPLÍCITO)
     # ==================================================
-    df_new = (
-        df.alias("s")
+    new_product_versions_df = (
+        refined_products_df.alias("s")
         .join(
-            delta.toDF().alias("t"),
+            dim_products_delta_table.toDF().alias("t"),
             (F.col("s.id_produto") == F.col("t.id_produto")) &
             (F.col("t.is_current") == True),
             "left"
@@ -161,9 +161,9 @@ else:
     # 3. INSERIR NOVAS VERSÕES
     # ==================================================
     (
-        delta.alias("t")
+        dim_products_delta_table.alias("t")
         .merge(
-            df_new.alias("s"),
+            new_product_versions_df.alias("s"),
             "t.id_produto = s.id_produto AND t.is_current = true"
         )
         .whenNotMatchedInsertAll()

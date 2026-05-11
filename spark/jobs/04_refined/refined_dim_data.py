@@ -14,7 +14,7 @@ refined_path = "/data/04_refined/ecommerce/dim_data"
 # =====================================================
 spark = (
     SparkSession.builder
-    .appName("dim_data")
+    .appName("refined_dim_data")
     .config("spark.hadoop.fs.defaultFS", "hdfs://namenode:8020")
     .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
     .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
@@ -24,7 +24,7 @@ spark = (
 # ======================================================
 # GENERATE DATE RANGE (BASE DATASET)
 # ======================================================
-df = (
+calendar_base_df = (
     spark.sql("""
         SELECT sequence(
             to_date('2020-01-01'),
@@ -38,7 +38,7 @@ df = (
 # ======================================================
 # DERIVE DATE ATTRIBUTES (CALENDAR DIMENSIONS)
 # ======================================================
-df = df.select(
+calendar_attributes_df = calendar_base_df.select(
     F.date_format("data", "yyyyMMdd").cast("int").alias("sk_data"),
     "data",
     F.year("data").alias("ano"),
@@ -54,8 +54,8 @@ df = df.select(
 # ======================================================
 # DERIVE BUSINESS ATTRIBUTES (SEMANTIC LAYER)
 # ======================================================
-df = (
-    df
+business_calendar_df = (
+    calendar_attributes_df
     .withColumn(
         "nome_dia",
         F.when(F.col("dia_semana") == 1, "Domingo")
@@ -75,13 +75,13 @@ df = (
 # ======================================================
 # FINAL ORDERING
 # ======================================================
-df = df.orderBy("data")
+refined_date_dimension_df = business_calendar_df.orderBy("data")
 
 # ======================================================
 # WRITE (DELTA - OVERWRITE)
 # ======================================================
 (
-    df.write
+    refined_date_dimension_df.write
     .format("delta")
     .mode("overwrite")
     .save(refined_path)

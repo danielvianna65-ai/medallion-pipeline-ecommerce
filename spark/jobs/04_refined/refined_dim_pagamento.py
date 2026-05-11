@@ -8,15 +8,15 @@ from delta.tables import DeltaTable
 # =====================================================
 # Paths
 # =====================================================
-trusted = "/data/03_trusted/ecommerce/pagamentos"
-refined = "/data/04_refined/ecommerce/dim_pagamento"
+trusted_payments_path = "/data/03_trusted/ecommerce/pagamentos"
+refined_payment_dimension_path = "/data/04_refined/ecommerce/dim_pagamento"
 
 # =====================================================
 # Spark Session Delta
 # =====================================================
 spark = (
     SparkSession.builder
-    .appName("dim_pagamento")
+    .appName("refined_dim_pagamento")
     .config("spark.hadoop.fs.defaultFS", "hdfs://namenode:8020")
     .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
     .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
@@ -26,12 +26,12 @@ spark = (
 # =====================================================
 # READ TRUSTED
 # =====================================================
-df = spark.read.format("delta").load(trusted)
+trusted_payments_df = spark.read.format("delta").load(trusted_payments_path)
 
 # =====================================================
 # SK
 # =====================================================
-df = df.withColumn(
+payment_dimension_base_df = trusted_payments_df.withColumn(
     "sk_pagamento",
     F.abs(F.hash("id_pagamento")).cast("bigint")
 )
@@ -39,7 +39,7 @@ df = df.withColumn(
 # =====================================================
 # SELECT
 # =====================================================
-df = df.select(
+refined_payments_df = payment_dimension_base_df.select(
     "id_pagamento",
     "id_pedido",
     "sk_pagamento",
@@ -52,18 +52,29 @@ df = df.select(
 # =====================================================
 # MERGE SCD1
 # =====================================================
-if not DeltaTable.isDeltaTable(spark, refined):
-    df.write.format("delta").mode("overwrite").save(refined)
+if not DeltaTable.isDeltaTable(spark, refined_payment_dimension_path):
+    refined_payments_df.write.format("delta").mode("overwrite").save(refined_payment_dimension_path)
 
 else:
-    DeltaTable.forPath(spark, refined) \
-        .alias("t") \
-        .merge(df.alias("s"), "t.id_pagamento = s.id_pagamento") \
-        .whenMatchedUpdate(set={
-            "forma_pagamento": "s.forma_pagamento",
-            "status_pagamento": "s.status_pagamento"
-        }) \
-        .whenNotMatchedInsertAll() \
+    dim_payments_delta_table = DeltaTable.forPath(
+        spark,
+        refined_payment_dimension_path
+    )
+
+    update_set = {
+        "forma_pagamento": "s.forma_pagamento",
+        "status_pagamento": "s.status_pagamento"
+    }
+
+    (
+        dim_payments_delta_table.alias("t")
+        .merge(
+            refined_payments_df.alias("s"),
+            "t.id_pagamento = s.id_pagamento"
+        )
+        .whenMatchedUpdate(set=update_set)
+        .whenNotMatchedInsertAll()
         .execute()
+    )
 
 spark.stop()

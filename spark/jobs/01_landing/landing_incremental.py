@@ -2,7 +2,7 @@
 # IMPORTS
 # =====================================================
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, lit, max as spark_max, to_date
+from pyspark.sql.functions import col, max as spark_max, to_date
 import argparse
 
 # ==========================
@@ -46,18 +46,20 @@ print(f"[INFO] Tabela: {table}")
 print(f"[INFO] Execution date: {execution_date}")
 
 # ==========================
-# 1) Ler watermark do metadatadocker compose
+# 1) Ler watermark do metadata
 # ==========================
-watermark = None
+stored_watermark = None
 
 try:
-    wm_df = spark.read.json(watermark_path)
-    watermark = (
-        wm_df
+    stored_watermark_df = spark.read.json(watermark_path)
+
+    stored_watermark = (
+        stored_watermark_df
         .agg(spark_max(col("watermark")).alias("wm"))
         .collect()[0]["wm"]
     )
-    print(f"[INFO] Watermark metadata encontrado: {watermark}")
+
+    print(f"[INFO] Watermark metadata encontrado: {stored_watermark}")
 
 except Exception:
     print("[INFO] Primeira execução - watermark ainda não existe.")
@@ -65,39 +67,39 @@ except Exception:
 # ==========================
 # 2) Montar query incremental
 # ==========================
-if watermark:
-    query = f"""
+if stored_watermark:
+    jdbc_extraction_query = f"""
         (SELECT *
          FROM {table}
-         WHERE {watermark_col} >= TIMESTAMP('{watermark}')) AS inc
+         WHERE {watermark_col} > TIMESTAMP('{stored_watermark}')) AS inc
     """
 else:
-    query = f"(SELECT * FROM {table}) AS full"
+    jdbc_extraction_query = f"(SELECT * FROM {table}) AS full"
 
-print("[INFO] Query incremental montada.")
+print("[INFO] Query de extração JDBC montada.")
 
 # ==========================
 # 3) Ler JDBC incremental
 # ==========================
-jdbc_props = {
+jdbc_connection_properties = {
     "user": args.jdbc_user,
     "password": args.jdbc_password,
     "driver": "com.mysql.cj.jdbc.Driver"
 }
 
-df_new = (
+incremental_extract_df = (
     spark.read
     .format("jdbc")
     .option("url", args.jdbc_url)
-    .option("dbtable", query)
-    .options(**jdbc_props)
+    .option("dbtable", jdbc_extraction_query)
+    .options(**jdbc_connection_properties)
     .load()
 )
 
 # ==========================
 # 4) Check vazio leve
 # ==========================
-if df_new.rdd.isEmpty():
+if incremental_extract_df.rdd.isEmpty():
     print("[INFO] Nenhum dado novo.")
     spark.stop()
     exit(0)
@@ -105,7 +107,7 @@ if df_new.rdd.isEmpty():
 # ==========================
 # 5) Adicionar partição dt
 # ==========================
-df_new = df_new.withColumn(
+incremental_partitioned_df = incremental_extract_df.withColumn(
     "dt",
     to_date(col(watermark_col))
 )
@@ -114,7 +116,7 @@ df_new = df_new.withColumn(
 # 7) Escrever incremental na LANDING
 # ==========================
 (
-    df_new.write
+    incremental_partitioned_df.write
     .mode("append")
     .partitionBy("dt")
     .parquet(landing_path)
@@ -125,21 +127,24 @@ print(f"[INFO] Ingestão incremental concluída para {table}")
 # ==========================
 # 8) Atualizar watermark metadata
 # ==========================
-new_watermark = (
-    df_new
+latest_incremental_watermark = (
+    incremental_partitioned_df
     .agg(spark_max(col(watermark_col)).alias("max_ts"))
     .collect()[0]["max_ts"]
 )
 
-if new_watermark:
-    print(f"[INFO] Novo watermark calculado: {new_watermark}")
+if latest_incremental_watermark:
+    print(f"[INFO] Novo watermark calculado: {latest_incremental_watermark}")
 
     spark.createDataFrame(
-        [(str(new_watermark),)],
+        [(str(latest_incremental_watermark),)],
         ["watermark"]
     ).coalesce(1).write.mode("overwrite").json(watermark_path)
 
     print("[INFO] Watermark metadata atualizado.")
 
-df_new.unpersist()
+print("[LANDING] Qtd registros após o merge:",
+      spark.read.parquet(landing_path).count()
+)
+
 spark.stop()

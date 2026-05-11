@@ -67,7 +67,7 @@ if is_bootstrap:
 
     print("[RAW] Bootstrap FULL")
 
-    df_inc = (
+    incremental_extract_df = (
         spark.read
         .parquet(landing_path)
     )
@@ -77,12 +77,12 @@ if is_bootstrap:
 # =====================================================
 else:
 
-    print("[RAW] Incremental CDC-aware (Unprocessed + Lookback)")
+    print("[RAW] Incremental (Unprocessed + Lookback)")
 
     # -------------------------------------------------
     # Partitions already processed
     # -------------------------------------------------
-    raw_dt_df = (
+    processed_partitions_df = (
         spark.read
         .format("delta")
         .load(raw_path)
@@ -101,7 +101,7 @@ else:
     # -------------------------------------------------
     # unprocessed
     # -------------------------------------------------
-    unprocessed_dt_df = landing_dt_df.join(raw_dt_df, ["dt"], "left_anti")
+    unprocessed_dt_df = landing_dt_df.join(processed_partitions_df, ["dt"], "left_anti")
 
     # -------------------------------------------------
     # DATA-BASED LOOKBACK
@@ -117,7 +117,7 @@ else:
     # -------------------------------------------------
     # UNION FINAL OF PARTITIONS
     # -------------------------------------------------
-    dt_valid = (
+    processing_partitions_df= (
         unprocessed_dt_df
         .union(lookback_df)
         .dropDuplicates()
@@ -126,18 +126,18 @@ else:
     # -------------------------------------------------
     # single collection
     # -------------------------------------------------
-    dt_rows = dt_valid.collect()
+    processing_partition_rows = processing_partitions_df.collect()
 
-    qtd = len(dt_rows)
-    dt_list = [r.dt for r in dt_rows]
-    partitions = sorted(dt_list)
+    processing_partition_count = len(processing_partition_rows)
+    processing_partition_list = [r.dt for r in processing_partition_rows]
+    sorted_processing_partitions = sorted(processing_partition_list)
 
-    print(f"[RAW] Partições para processamento: {qtd}")
+    print(f"[RAW] Partições para processamento: {processing_partition_count}")
     print("[RAW] Lista de partições:")
-    for p in partitions:
+    for p in sorted_processing_partitions:
         print(f" - {p}")
 
-    if qtd == 0:
+    if processing_partition_count == 0:
         print("[RAW] Nada para processar.")
         spark.stop()
         exit(0)
@@ -145,17 +145,17 @@ else:
     # -------------------------------------------------
     # EFFICIENT READING (NO JOIN)
     # -------------------------------------------------
-    df_inc = (
+    incremental_extract_df = (
         spark.read
         .parquet(landing_path)
-        .filter(F.col("dt").isin(dt_list))
+        .filter(F.col("dt").isin(processing_partition_list))
     )
 
 # =====================================================
 # SCHEMA
 # =====================================================
-df_inc = (
-    df_inc.select(
+standardized_customers_df = (
+    incremental_extract_df.select(
         F.col("id_pagamento").cast("int").alias("id_pagamento"),
         F.col("id_pedido").cast("int").alias("id_pedido"),
         F.col("forma_pagamento").cast("string").alias("forma_pagamento"),
@@ -170,33 +170,33 @@ df_inc = (
 # ======================================================
 # Data Label
 # ======================================================
-df_inc = (
-    df_inc
+labeled_customers_df  = (
+    standardized_customers_df
     .withColumn("ingestion_ts", F.current_timestamp())
     .withColumn("source_system", F.lit("ecommerce_mysql"))
 )
 
 # =====================================================
-# Dedupe determinístic
+# Deterministic Dedupe
 # =====================================================
-window_spec = Window.partitionBy(PRIMARY_KEY).orderBy(F.col(WATERMARK_COL).desc())
+customer_deduplication_window = Window.partitionBy(PRIMARY_KEY).orderBy(F.col(WATERMARK_COL).desc())
 
-df_inc = (
-    df_inc
-    .withColumn("rn", F.row_number().over(window_spec))
+deduplicated_customers_df = (
+    labeled_customers_df
+    .withColumn("rn", F.row_number().over(customer_deduplication_window))
     .filter(F.col("rn") == 1)
     .drop("rn")
 )
 
-# =====================================================
-# Delta MERGE SAFE
-# =====================================================
+# ======================================================
+# Incremental Merge
+# ======================================================
 if not DeltaTable.isDeltaTable(spark, raw_path):
 
     print("[RAW] Primeira carga → criando Delta")
 
     (
-        df_inc.write
+        deduplicated_customers_df.write
         .format("delta")
         .mode("overwrite")
         .partitionBy("dt")
@@ -212,20 +212,20 @@ else:
 
     delta_table = DeltaTable.forPath(spark, raw_path)
 
-    update_set = {c: f"source.{c}" for c in df_inc.columns}
-    insert_values = {c: f"source.{c}" for c in df_inc.columns}
+    update_set = {c: f"source.{c}" for c in deduplicated_customers_df.columns}
+    insert_set = {c: f"source.{c}" for c in deduplicated_customers_df.columns}
 
     (
         delta_table.alias("target")
         .merge(
-            df_inc.alias("source"),
+            deduplicated_customers_df.alias("source"),
             f"target.{PRIMARY_KEY} = source.{PRIMARY_KEY}"
         )
         .whenMatchedUpdate(
             condition=f"source.{WATERMARK_COL} > target.{WATERMARK_COL}",
             set=update_set
         )
-        .whenNotMatchedInsert(values=insert_values)
+        .whenNotMatchedInsert(values=insert_set)
         .execute()
     )
 
@@ -234,5 +234,6 @@ print("[RAW] MERGE concluído.")
 print("[RAW] Qtd registros após o merge:",
       spark.read.format("delta").load(raw_path).count()
 )
+
 
 spark.stop()

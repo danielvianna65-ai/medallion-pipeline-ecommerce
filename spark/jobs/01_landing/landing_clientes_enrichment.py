@@ -2,8 +2,6 @@
 # IMPORTS
 # =====================================================
 from pyspark.sql import SparkSession
-from pyspark.sql.types import StructType, StructField
-from pyspark.sql.types import StringType, IntegerType, DecimalType
 from pyspark.sql.functions import current_date
 
 # =====================================================
@@ -30,10 +28,10 @@ spark = (
 # =====================================================
 # READ
 # =====================================================
-print(f"[LANDING][|{table}] Source: {source_path}")
-print(f"[LANDING][{table}] Target: {landing_path}")
+print(f"[LANDING][{table}] Source path: {source_path}")
+print(f"[LANDING][{table}] Target path: {landing_path}")
 
-df = (
+reference_extract_df = (
     spark.read
     .option("header", True)
     .option("inferSchema", False)
@@ -44,14 +42,14 @@ df = (
 # =====================================================
 # PARTITION BY DT
 # =====================================================
-df = df.withColumn("dt", current_date())
+partitioned_reference_df = reference_extract_df.withColumn("dt", current_date())
 
 # =====================================================
 # WRITE
 # =====================================================
 print(f"[LANDING][{table}] Gravando")
 (
-    df.write
+    partitioned_reference_df.write
     .mode("overwrite")
     .partitionBy("dt")
     .parquet(landing_path)

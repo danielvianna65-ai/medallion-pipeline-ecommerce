@@ -23,7 +23,7 @@ clientes_path = "/data/03_trusted/ecommerce/clientes"
 # =====================================================
 spark = (
     SparkSession.builder
-    .appName("trusted_clientes_enrichmentcount5")
+    .appName("trusted_clientes_enrichment")
     .config("spark.hadoop.fs.defaultFS", "hdfs://namenode:8020")
     .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
     .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
@@ -37,15 +37,15 @@ print(f"[TRUSTED][{table}] Source RAW: {raw_path}")
 print(f"[TRUSTED][{table}] Lookup CLIENTES (TRUSTED): {clientes_path}")
 print(f"[TRUSTED][{table}] Target TRUSTED: {trusted_path}")
 
-df_raw = spark.read.format("delta").load(raw_path)
+raw_extract_df = spark.read.format("delta").load(raw_path)
 
 # ======================================================
 # DATA QUALITY + NORMALIZATION
 # ======================================================
 print(f"[TRUSTED][{table}] Aplicando limpeza e padronização")
 
-df_clean = (
-    df_raw
+normalized_customers_df = (
+    raw_extract_df
     # CPF
     .withColumn("cpf", F.regexp_replace(F.col("cpf"), "[^0-9]", ""))
 
@@ -82,8 +82,8 @@ df_clean = (
 # ======================================================
 # Data Quality Checks
 # ======================================================
-df_clean = (
-    df_clean
+validated_customers_df = (
+    normalized_customers_df
 
     # Email válido
     .withColumn(
@@ -109,11 +109,11 @@ df_clean = (
 # ======================================================
 print(f"[TRUSTED][{table}] Deduplicando enrichment")
 
-w = Window.partitionBy("cpf").orderBy(F.col("ingestion_ts").desc())
+customer_deduplication_window = Window.partitionBy("cpf").orderBy(F.col("ingestion_ts").desc())
 
-df_clean = (
-    df_clean
-    .withColumn("rn", F.row_number().over(w))
+deduplicated_customers_df = (
+    validated_customers_df
+    .withColumn("rn", F.row_number().over(customer_deduplication_window))
     .filter("rn = 1")
     .drop("rn")
 )
@@ -123,7 +123,7 @@ df_clean = (
 # ======================================================
 print("[TRUSTED] Validando domínio (clientes)")
 
-df_clientes = (
+trusted_customers_lookup_df = (
     spark.read
     .format("delta")
     .load(clientes_path)
@@ -131,22 +131,22 @@ df_clientes = (
     .dropDuplicates()
 )
 
-df_match = (
-    df_clean.alias("e")
+domain_validated_customers_df = (
+    deduplicated_customers_df.alias("e")
     .join(
-        F.broadcast(df_clientes.alias("c")),
+        F.broadcast(trusted_customers_lookup_df.alias("c")),
         F.col("e.cpf") == F.col("c.cpf"),
         "inner"
     )
     .select("e.*")
 )
 
-print(f"[TRUSTED][{table}] Registros válidos: {df_match.count()}")
+print(f"[TRUSTED][{table}] Registros válidos: {domain_validated_customers_df.count()}")
 
 # ======================================================
-# Data Auditing
+# Data Label
 # ======================================================
-df_match = df_match.withColumn(
+labeled_customers_df = domain_validated_customers_df.withColumn(
     "processing_trusted",
     F.current_timestamp()
 )
@@ -161,7 +161,7 @@ if is_bootstrap:
     print(f"[TRUSTED][{table}] Bootstrap inicial")
 
     (
-        df_match.write
+        labeled_customers_df.write
         .format("delta")
         .mode("overwrite")
         .option("overwriteSchema", "true")
@@ -172,7 +172,7 @@ else:
 
     print(f"[TRUSTED][{table}] Executando MERGE incremental")
 
-    delta_table = DeltaTable.forPath(spark, trusted_path)
+    trusted_customers_delta_table = DeltaTable.forPath(spark, trusted_path)
 
     update_set = {
         "nome": "source.nome",
@@ -198,9 +198,9 @@ else:
     }
 
     (
-        delta_table.alias("target")
+        trusted_customers_delta_table.alias("target")
         .merge(
-            df_match.alias("source"),
+            labeled_customers_df.alias("source"),
             "target.cpf = source.cpf"
         )
         .whenMatchedUpdate(
