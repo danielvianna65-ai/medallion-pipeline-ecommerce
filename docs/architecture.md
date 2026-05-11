@@ -325,11 +325,15 @@ Airflow DAG
     ↓
 SparkSubmitOperator
     ↓
-Spark Standalone Cluster
+Spark Driver (client mode no Airflow)
     ↓
-PySpark Jobs
+Spark Master
     ↓
-Delta Lake on HDFS
+Spark Executors (Workers)
+    ↓
+PySpark Processing
+    ↓
+Delta Lake / Parquet on HDFS
 ```
 
 ---
