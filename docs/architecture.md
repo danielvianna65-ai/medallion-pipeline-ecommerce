@@ -411,20 +411,6 @@ A arquitetura foi desenhada visando escalabilidade horizontal.
 
 ---
 
-# ⚖️ Tradeoffs Arquiteturais
-
-## Spark Standalone vs Kubernetes
-
-Spark Standalone foi escolhido por:
-
-- Menor complexidade operacional
-- Facilidade de desenvolvimento local
-- Simplicidade de configuração
-
-Kubernetes seria mais adequado para ambientes de produção em larga escala.
-
----
-
 ## Batch Incremental vs Streaming
 
 Batch incremental foi escolhido por:
@@ -447,44 +433,6 @@ Streaming seria indicado para cenários near real-time.
 | SCD Tipo 2 | Histórico de entidades |
 | Star Schema | Performance analítica |
 | Docker Compose | Reprodutibilidade |
-
----
-
-# 🚀 Evoluções Futuras
-
-## Engenharia de Dados
-
-- Metadata-driven pipelines
-- Dynamic DAG generation
-- Config-driven pipelines
-- CI/CD
-
----
-
-## Observabilidade
-
-- Métricas centralizadas
-- Alertas
-- Dashboards operacionais
-- Logging estruturado
-
----
-
-## Data Quality
-
-- Great Expectations
-- Data contracts
-- Testes automatizados
-- Quality monitoring
-
----
-
-## Infraestrutura
-
-- Kubernetes
-- Spark on Kubernetes
-- Airflow Celery/Kubernetes Executor
-- Object Storage
 
 ---
 
