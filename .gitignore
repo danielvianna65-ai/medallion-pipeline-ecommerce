@@ -36,6 +36,7 @@ superset/superset_home/*.db
 superset/superset_home/.cache/
 superset/superset_home/uploads/
 superset/superset_home/
+superset/drivers/*.jar
 
 # =========================================================
 # Data Files
