@@ -18,6 +18,9 @@ spark = (
     .config("spark.hadoop.fs.defaultFS", "hdfs://namenode:8020")
     .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
     .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
+    .config("spark.sql.catalogImplementation", "hive")
+    .config("spark.hadoop.hive.metastore.uris", "thrift://hive-metastore:9083")
+    .config("spark.sql.warehouse.dir", "hdfs://namenode:8020/user/hive/warehouse")
     .getOrCreate()
 )
 
@@ -86,5 +89,23 @@ refined_date_dimension_df = business_calendar_df.orderBy("data")
     .mode("overwrite")
     .save(refined_path)
 )
+
+# ======================================================
+# HIVE METASTORE REGISTRATION
+# ======================================================
+spark.sql("SHOW DATABASES").show(truncate=False)
+
+spark.sql("""
+CREATE DATABASE IF NOT EXISTS refined
+LOCATION 'hdfs://namenode:8020/data/warehouse/refined.db'
+""")
+
+spark.sql("""
+CREATE TABLE IF NOT EXISTS refined.dim_data
+USING DELTA
+LOCATION 'hdfs://namenode:8020/data/04_refined/ecommerce/dim_data'
+""")
+
+print("[DIM_DATA] OK")
 
 spark.stop()

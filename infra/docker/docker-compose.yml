@@ -51,6 +51,9 @@ services:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__CORE__FERNET_KEY: "Yxkq3Y6j9mJpZ2v8L8zJ8Yb0K0Yz5yGxF5w3R2Q1abc="
       AIRFLOW__WEBSERVER__SECRET_KEY: "super-secret-static-key"
+      AIRFLOW__WEBSERVER__SESSION_COOKIE_NAME: airflow_session
+      AIRFLOW__WEBSERVER__COOKIE_SAMESITE: Lax
+      AIRFLOW__WEBSERVER__COOKIE_SECURE: "False"
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow-db:5432/airflow
       AIRFLOW__CORE__LOAD_DEFAULT_CONNECTIONS: "False"
       AIRFLOW__CORE__DEFAULT_TIMEZONE: America/Sao_Paulo
@@ -66,7 +69,6 @@ services:
     command: webserver
     networks:
       - medallion-net
-
 
   # =========================
   # AIRFLOW SCHEDULER
@@ -112,7 +114,6 @@ services:
     networks:
       - medallion-net
 
-
   # =========================
   # HDFS DATANODE
   # =========================
@@ -130,11 +131,147 @@ services:
       - medallion-net
 
   # =========================
+  # POSTGRES (HIVE METASTORE)
+  # =========================
+  hive-metastore-db:
+    image: postgres:15
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: metastore
+      POSTGRES_USER: hive
+      POSTGRES_PASSWORD: hive
+      POSTGRES_HOST_AUTH_METHOD: md5
+    command: >
+      postgres -c password_encryption=md5
+    volumes:
+      - hive-metastore-volume:/var/lib/postgresql/data
+    networks:
+      - medallion-net
+
+  # =========================
+  # HIVE METASTORE
+  # =========================
+  hive-metastore:
+    image: apache/hive:4.0.0
+    restart: unless-stopped
+
+    depends_on:
+      - hive-metastore-db
+      - namenode
+
+    environment:
+      SERVICE_NAME: metastore
+      DB_DRIVER: postgres
+      HADOOP_CONF_DIR: /opt/hadoop/etc/hadoop
+      CORE_CONF_fs_defaultFS: hdfs://namenode:8020
+      TZ: America/Sao_Paulo
+
+      HIVE_AUX_JARS_PATH: /opt/hive/lib/postgresql-42.7.3.jar
+
+      SERVICE_OPTS: >
+        -Djavax.jdo.option.ConnectionDriverName=org.postgresql.Driver
+        -Djavax.jdo.option.ConnectionURL=jdbc:postgresql://hive-metastore-db:5432/metastore
+        -Djavax.jdo.option.ConnectionUserName=hive
+        -Djavax.jdo.option.ConnectionPassword=hive
+        -Dhive.execution.engine=mr
+
+    ports:
+      - "9083:9083"
+
+    volumes:
+      - ../../infra/hadoop:/opt/hadoop/etc/hadoop
+      - ../../spark/external-jars/postgresql-42.7.3.jar:/opt/hive/lib/postgresql-42.7.3.jar
+
+    networks:
+      - medallion-net
+
+  # =========================
+  # SPARK SQL / THRIFT SERVER
+  # =========================
+  spark-thriftserver:
+    build: ../../spark
+    image: apache/spark:3.5.8
+    restart: unless-stopped
+
+    depends_on:
+      - spark-master
+      - hive-metastore
+
+    command: >
+      /opt/spark/bin/spark-submit
+      --class org.apache.spark.sql.hive.thriftserver.HiveThriftServer2
+      --master spark://spark-master:7077
+      --conf spark.executor.instances=1
+      --conf spark.executor.cores=2
+      --conf spark.executor.memory=3g
+      --conf spark.cores.max=2
+      --conf spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension
+      --conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog
+      --conf spark.sql.catalogImplementation=hive
+      --conf spark.sql.warehouse.dir=hdfs://namenode:8020/user/hive/warehouse
+      --conf spark.hadoop.fs.defaultFS=hdfs://namenode:8020
+      --conf spark.hadoop.hive.metastore.uris=thrift://hive-metastore:9083
+      --conf spark.hadoop.hive.server2.authentication=NOSASL
+      --jars /opt/spark/external-jars/delta-spark_2.12-3.2.0.jar,/opt/spark/external-jars/delta-storage-3.2.0.jar,/opt/spark/external-jars/postgresql-42.7.3.jar
+      /opt/spark/jars/spark-hive-thriftserver_2.12-3.5.8.jar
+
+    ports:
+      - "10015:10000"
+
+    volumes:
+      - ../../spark:/opt/spark/app
+      - ../../spark/jobs:/opt/spark/jobs
+      - *spark-jars
+      - ../../infra/hadoop:/opt/hadoop/etc/hadoop
+
+    environment:
+      - HADOOP_CONF_DIR=/opt/hadoop/etc/hadoop
+      - TZ=America/Sao_Paulo
+      - JAVA_TOOL_OPTIONS=-Duser.timezone=America/Sao_Paulo
+
+    networks:
+      - medallion-net
+
+  # =========================
+  # APACHE SUPERSET
+  # =========================
+  superset:
+    build:
+      context: ../../superset/docker
+      dockerfile: Dockerfile
+
+    container_name: superset
+
+    restart: unless-stopped
+
+    depends_on:
+      - spark-thriftserver
+
+    environment:
+      SUPERSET_SECRET_KEY: supersecretkey
+      TZ: America/Sao_Paulo
+
+    ports:
+      - "8088:8088"
+
+    volumes:
+      - ../../superset/superset_home:/app/superset_home
+      - ../../superset/drivers:/app/drivers
+      - ../../superset/superset_config.py:/app/pythonpath/superset_config.py
+
+    command: >
+      superset run -h 0.0.0.0 -p 8088
+
+    networks:
+      - medallion-net
+
+  # =========================
   # SPARK MASTER
   # =========================
   spark-master:
     build: ../../spark
     image: apache/spark:3.5.8
+    restart: unless-stopped
     command: >
       /opt/spark/bin/spark-class
       org.apache.spark.deploy.master.Master
@@ -161,6 +298,7 @@ services:
   spark-worker:
     build: ../../spark
     image: apache/spark:3.5.8
+    restart: unless-stopped
     depends_on:
       - spark-master
     command: >
@@ -185,9 +323,10 @@ services:
 
 networks:
   medallion-net:
-    driver: bridge
+    external: true
 
 volumes:
   namenode-data:
   datanode-data:
   postgres-db-volume:
+  hive-metastore-volume:

@@ -1,4 +1,4 @@
-# 🛒 Medallion Pipeline - E-commerce
+# End-to-End Lakehouse Analytics Platform
 
 Pipeline de Engenharia de Dados end-to-end baseado em arquitetura Medallion, utilizando Apache Spark, Delta Lake, Apache Airflow e HDFS para processamento incremental distribuído e construção de um modelo dimensional analítico.
 
@@ -208,7 +208,7 @@ docs/project_structure.md
 ## Subir infraestrutura
 
 ```bash
-docker compose -f infra/docker/docker-compose.yml up -d
+docker compose -f infra/docker/ up -d
 ```
 
 ---

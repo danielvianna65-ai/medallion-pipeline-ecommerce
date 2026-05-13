@@ -28,10 +28,16 @@ SPARK_CONF = {
     "spark.sql.catalog.spark_catalog": "org.apache.spark.sql.delta.catalog.DeltaCatalog",
     "spark.sql.adaptive.enabled": "true",
     "spark.sql.adaptive.coalescePartitions.enabled": "true",
+    "spark.hadoop.fs.defaultFS": "hdfs://namenode:8020",
+    "spark.sql.catalogImplementation": "hive",
+    "spark.hadoop.hive.metastore.uris": "thrift://hive-metastore:9083",
+    "spark.sql.warehouse.dir": "hdfs://namenode:8020/user/hive/warehouse",
     "spark.jars": (
-        "/opt/spark/external-jars/delta-spark_2.12-3.2.0.jar,"
-        "/opt/spark/external-jars/delta-storage-3.2.0.jar"
-    )
+    "/opt/spark/external-jars/delta-spark_2.12-3.2.0.jar,"
+    "/opt/spark/external-jars/delta-storage-3.2.0.jar,"
+    "/opt/spark/external-jars/postgresql-42.7.3.jar"
+)
+
 }
 
 DEFAULT_ARGS = {

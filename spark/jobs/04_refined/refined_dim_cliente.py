@@ -20,6 +20,9 @@ spark = (
     .config("spark.hadoop.fs.defaultFS", "hdfs://namenode:8020")
     .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
     .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
+    .config("spark.sql.catalogImplementation", "hive")
+    .config("spark.hadoop.hive.metastore.uris", "thrift://hive-metastore:9083")
+    .config("spark.sql.warehouse.dir", "hdfs://namenode:8020/user/hive/warehouse")
     .getOrCreate()
 )
 
@@ -36,13 +39,18 @@ customer_dimension_base_df = (
     trusted_customers_df.alias("c")
     .join(trusted_customers_enrichment_df.alias("e"), "cpf", "left")
     .select(
-        F.col("c.id_cliente"),
+        F.col("c.id_cliente").cast("int").alias("id_cliente"),
         F.col("c.cpf"),
         F.coalesce(F.col("e.nome"), F.col("c.nome")).alias("nome"),
         F.coalesce(F.col("e.email"), F.col("c.email")).alias("email"),
         F.coalesce(F.col("e.telefone"), F.col("c.telefone")).alias("telefone"),
-        F.col("e.renda_estimada").alias("renda_estimada"),
-        F.col("e.score_credito").alias("score_credito"),
+
+        F.col("e.renda_estimada")
+            .cast("decimal(12,2)")
+            .alias("renda_estimada"),
+
+        F.col("e.score_credito").cast("int").alias("score_credito"),
+
         F.col("c.ingestion_ts").alias("ingestion_ts"),
     )
 )
@@ -156,6 +164,22 @@ else:
         .whenNotMatchedInsertAll()
         .execute()
     )
+
+# ======================================================
+# HIVE METASTORE REGISTRATION
+# ======================================================
+spark.sql("SHOW DATABASES").show(truncate=False)
+
+spark.sql("""
+CREATE DATABASE IF NOT EXISTS refined
+LOCATION 'hdfs://namenode:8020/data/warehouse/refined.db'
+""")
+
+spark.sql("""
+CREATE TABLE IF NOT EXISTS refined.dim_cliente
+USING DELTA
+LOCATION 'hdfs://namenode:8020/data/04_refined/ecommerce/dim_cliente'
+""")
 
 print("[DIM_CLIENTE] OK")
 
