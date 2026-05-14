@@ -56,6 +56,7 @@ with DAG(
                 "spark.executor.memory": "3g",
                 "spark.executor.cores": "2",
                 "spark.cores.max": "2",
+                "spark.driver.memory": "1g",
                 "spark.sql.shuffle.partitions": "8",
                 "spark.hadoop.dfs.replication": "1",
                 "spark.sql.extensions": "io.delta.sql.DeltaSparkSessionExtension",

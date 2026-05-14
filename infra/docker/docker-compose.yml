@@ -201,10 +201,13 @@ services:
       /opt/spark/bin/spark-submit
       --class org.apache.spark.sql.hive.thriftserver.HiveThriftServer2
       --master spark://spark-master:7077
+      --conf spark.driver.memory=3g
       --conf spark.executor.instances=1
-      --conf spark.executor.cores=2
-      --conf spark.executor.memory=3g
-      --conf spark.cores.max=2
+      --conf spark.executor.cores=4
+      --conf spark.executor.memory=6g
+      --conf spark.cores.max=4
+      --conf spark.sql.shuffle.partitions=8
+      --conf spark.scheduler.mode=FAIR
       --conf spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension
       --conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog
       --conf spark.sql.catalogImplementation=hive
@@ -312,8 +315,8 @@ services:
       - ../../infra/hadoop:/opt/hadoop/etc/hadoop
     environment:
       - HADOOP_CONF_DIR=/opt/hadoop/etc/hadoop
-      - SPARK_WORKER_MEMORY=12g
-      - SPARK_WORKER_CORES=8
+      - SPARK_WORKER_MEMORY=22g
+      - SPARK_WORKER_CORES=12
       - PYSPARK_PYTHON=python3
       - PYSPARK_DRIVER_PYTHON=python3
       - TZ=America/Sao_Paulo
