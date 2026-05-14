@@ -1,31 +1,38 @@
-# Customer Analytics Dashboard
+# Customer Analytics
 
-Dashboard responsável pela análise de comportamento e participação dos clientes no faturamento do ecommerce.
+Esta seção analítica faz parte do dashboard executivo central da plataforma analytics.
 
----
-
-## KPIs
-
-- quantidade vendida por cliente
-- faturamento por cliente
-- clientes com maior participação em receita
-- comportamento de pagamento por cliente
+Responsável pela análise de comportamento, participação financeira e perfil de consumo dos clientes no ecommerce.
 
 ---
 
-## Objetivo
+## Objetivos Analíticos
 
-Analisar comportamento de compra, participação financeira e relevância dos clientes dentro do ecommerce.
-
----
-
-## Métricas SQL
-
-- quantidade_vendida_por_cliente_pagamentos_confirmados.sql
-- faturamento_por_cliente_e_forma_de_pagamento_confirmado.sql
+- Identificar clientes com maior participação em receita
+- Analisar comportamento de compra
+- Avaliar volume de vendas por cliente
+- Analisar padrões de pagamento
 
 ---
 
-## Screenshot
+## KPIs e Métricas
 
-![Customer Analytics Dashboard](../../screenshots/customer_analytics_dashboard.png)
+- Quantidade vendida por cliente
+- Receita por cliente
+- Receita por forma de pagamento
+- Participação percentual na receita total
+- Top clientes por receita
+
+---
+
+## Camada Analítica
+
+Dataset utilizado:
+
+```sql
+refined.vw_fato_vendas_enriquecida
+```
+
+---
+
+## Queries SQL

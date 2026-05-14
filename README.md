@@ -1,6 +1,6 @@
 # Ecommerce Lakehouse Analytics Platform
 
-Plataforma analítica Lakehouse end-to-end para ecommerce utilizando Medallion Architecture com Apache Spark, Delta Lake, Apache Airflow, HDFS, Hive Metastore, Spark ThriftServer e Apache Superset para processamento distribuído, SQL serving layer e BI analytics.
+Plataforma analítica Lakehouse end-to-end para ecommerce utilizando Medallion Architecture com Apache Spark, Delta Lake, Apache Airflow, HDFS, Hive Metastore, Spark ThriftServer e Apache Superset para processamento distribuído, SQL Serving Layer e BI analytics.
 
 ---
 
@@ -261,9 +261,7 @@ Granularidade:
 ```bash
 docker compose up -d
 ```
-
 ---
-
 # 🌐 Serviços
 
 | Serviço         | URL                                            |
@@ -301,7 +299,15 @@ docker compose up -d
 | docs/decisions.md         | ADRs e decisões arquiteturais       |
 
 ---
+# 📊 Documentação dos Dashboards
 
+A documentação analítica detalhada dos dashboards Apache Superset pode ser encontrada em:
+
+- `superset/dashboards/sales_analytics.md`
+- `superset/dashboards/customer_analytics.md`
+- `superset/dashboards/payment_analytics.md`
+- `superset/dashboards/executive_analytics_dashboard.md`
+---
 # 🎯 Objetivo
 
 Demonstrar a construção de uma plataforma moderna de engenharia e analytics de dados próxima de ambientes reais de produção, utilizando:

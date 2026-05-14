@@ -1,34 +1,41 @@
-# Payment Analytics Dashboard
+# Payment Analytics
 
-Dashboard responsável pela análise financeira e comportamento de pagamentos do ecommerce.
+Esta seção analítica faz parte do dashboard executivo central da plataforma analytics.
 
----
-
-## KPIs
-
-- status de pagamento
-- forma de pagamento
-- quantidade de transações
-- faturamento por meio de pagamento
-- faturamento semanal por status de pagamento
+Responsável pela análise financeira e comportamento transacional dos pagamentos do ecommerce.
 
 ---
 
-## Objetivo
+## Objetivos Analíticos
 
-Monitorar comportamento financeiro e eficiência operacional dos pagamentos do ecommerce.
-
----
-
-## Métricas SQL
-
-- quantidade_de_transações_por_status_e_forma_de_pagamento.sql
-- faturamento_por_cliente_e_forma_de_pagamento_confirmado.sql
-- faturamento_Semanal_por_status_e_forma_de_pagamento.sql
-- itens_vendidos_por_produto_e_status_de_pagamento.sql
+- Monitorar status de pagamentos
+- Analisar comportamento por forma de pagamento
+- Avaliar volume transacional
+- Medir receita por meio de pagamento
+- Identificar tendências financeiras ao longo do tempo
 
 ---
 
-## Screenshot
+## KPIs e Métricas
 
-![Payment Analytics Dashboard](../../screenshots/payment_analytics_dashboard.png)
+- Quantidade de transações
+- Receita por forma de pagamento
+- Receita por status de pagamento
+- Distribuição de pagamentos
+- Tendência semanal de receita
+- Participação financeira por método de pagamento
+
+---
+
+## Camada Analítica
+
+Dataset utilizado:
+
+```sql
+refined.vw_fato_vendas_enriquecida
+```
+
+---
+
+## Queries SQL
+

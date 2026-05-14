@@ -1,33 +1,40 @@
-# Sales Analytics Dashboard
+# Sales Analytics
 
-Dashboard responsável pela análise temporal de vendas e faturamento.
+Esta seção analítica faz parte do dashboard executivo central da plataforma analytics.
 
----
-
-## KPIs
-
-- faturamento mensal
-- receita por produto
-- pedidos por minuto
-- itens vendidos por minuto
+Responsável pela análise temporal de vendas, receita e comportamento comercial do ecommerce.
 
 ---
 
-## Objetivo
+## Objetivos Analíticos
 
-Analisar comportamento comercial e evolução temporal das vendas do ecommerce.
-
----
-
-## Métricas SQL
-
-- faturamento_mensal_pagamentos_confirmados.sql
-- receita_por_produto_confirmado.sql
-- pedidos_por_minuto_confirmado.sql
-- itens_vendidos_por_minuto_confirmado.sql
+- Analisar evolução temporal das vendas
+- Monitorar tendências de receita
+- Avaliar volume transacional
+- Identificar produtos com maior participação comercial
+- Medir comportamento operacional de vendas
 
 ---
 
-## Screenshot
+## KPIs e Métricas
 
-![Sales Analytics Dashboard](../../screenshots/sales_analytics_dashboard.png)
+- Receita mensal
+- Receita por categoria
+- Receita por dia da semana
+- Evolução diária da receita
+- Quantidade de pedidos
+- Volume de itens vendidos
+
+---
+
+## Camada Analítica
+
+Dataset utilizado:
+
+```sql
+refined.vw_fato_vendas_enriquecida
+```
+
+---
+
+## Queries SQL
