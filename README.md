@@ -1,133 +1,176 @@
-# End-to-End Lakehouse Analytics Platform
+# Ecommerce Lakehouse Analytics Platform
 
-> ⚠️ Documentação temporariamente desatualizada devido às recentes alterações de arquitetura e integrações do projeto.  
-> Uma revisão completa da documentação está em andamento.
----
-
-Pipeline de Engenharia de Dados end-to-end baseado em arquitetura Medallion, utilizando Apache Spark, Delta Lake, Apache Airflow e HDFS para processamento incremental distribuído e construção de um modelo dimensional analítico.
+Plataforma analítica Lakehouse end-to-end para ecommerce utilizando Medallion Architecture com Apache Spark, Delta Lake, Apache Airflow, HDFS, Hive Metastore, Spark ThriftServer e Apache Superset para processamento distribuído, SQL serving layer e BI analytics.
 
 ---
 
 # 📌 Visão Geral
 
-Este projeto simula uma plataforma moderna de dados para e-commerce, implementando um pipeline incremental distribuído com separação em camadas:
+Este projeto implementa uma plataforma moderna de engenharia e analytics de dados voltada para processamento distribuído em larga escala.
 
-```text
-Landing → Raw → Trusted → Refined
-```
+A plataforma realiza ingestão incremental de dados transacionais de ecommerce a partir do MySQL e datasets externos de enriquecimento, processa os dados através de uma arquitetura Medallion utilizando Apache Spark e Delta Lake, disponibiliza datasets analíticos através do Hive Metastore e Spark ThriftServer, e entrega dashboards executivos utilizando Apache Superset.
 
-O pipeline realiza:
+A arquitetura simula um ambiente enterprise de Lakehouse Analytics incluindo:
 
-- Ingestão incremental via watermark
-- Processamento distribuído com Spark Cluster
-- Merge incremental com Delta Lake
-- Estratégia híbrida Unprocessed + Lookback
-- Data Quality explícita
-- Modelagem dimensional (Star Schema)
-- SCD Tipo 2 em dimensões analíticas
+* Orquestração de pipelines
+* Processamento distribuído
+* Modelagem dimensional
+* SQL serving layer
+* Analytics e BI
+* Governança de dados
+* Data Lake distribuído
 
 ---
 
 # 🧩 Arquitetura
 
-![Arquitetura Medallion](docs/diagrams/arquitetura_medallion_pipeline.png)
+![Arquitetura](docs/screenshots/diagrama_arquitetura.png)
 
 ---
 
 # 🧱 Stack Tecnológica
 
-| Tecnologia | Finalidade |
-|---|---|
-| Apache Airflow 2.10.5 | Orquestração |
-| Apache Spark 3.5.8 (Standalone Cluster) | Processamento distribuído |
-| Delta Lake 3.2.0 | ACID + Merge incremental |
-| Hadoop HDFS 3.2.1 | Data Lake distribuído |
-| PostgreSQL 15 | Metadata do Airflow |
-| Docker Compose | Infraestrutura local |
-| Python 3.10.12 | Desenvolvimento |
+| Tecnologia                 | Finalidade                              |
+|----------------------------|------------------------------------------|
+| Apache Airflow 2.10.5      | Orquestração                            |
+| Apache Spark 3.5.8         | Processamento distribuído               |
+| Delta Lake 3.2.0           | ACID + Merge incremental                |
+| Hadoop HDFS 3.2.1          | Data Lake distribuído                   |
+| Hive Metastore 4.0.0       | Catálogo centralizado                   |
+| Spark ThriftServer 3.5.8   | Camada SQL                              |
+| Apache Superset 6.0.1      | BI Analytics                            |
+| PostgreSQL 15 (Airflow DB) | Metadata do Airflow                     |
+| PostgreSQL 15 (Hive DB)    | Backend do Hive Metastore               |
+| Docker Compose 5.1.3       | Infraestrutura                          |
 
 ---
 
-# 🔄 Fluxo do Pipeline
+# 🔄 Fluxo da Plataforma
 
 ```text
 MySQL / CSV
       ↓
 Landing
-(Ingestão incremental)
       ↓
 Raw
-(Batch incremental + Delta Merge)
       ↓
 Trusted
-(Data Quality + Regras de Negócio)
       ↓
 Refined
-(Modelo Dimensional)
+      ↓
+Hive Metastore
+      ↓
+Spark ThriftServer
+      ↓
+Apache Superset
+      ↓
+Analytics Dashboards
 ```
 
 ---
 
-# 🏛️ Arquitetura em Camadas
+# 🏛️ Medallion Architecture
 
-## 🟡 Landing
+## 🟡 Landing Layer
 
-Camada responsável pela ingestão incremental dos dados.
-
-### Características
-
-- Leitura JDBC (MySQL)
-- Ingestão incremental via watermark
-- Persistência em Parquet
-- Controle incremental via metadata em HDFS
-
----
-
-## 🔵 Raw
-
-Camada responsável pela padronização e consistência incremental.
+Camada responsável pela ingestão incremental dos dados brutos.
 
 ### Características
 
-- Batch incremental
-- Schema enforcement
-- Deduplicação
-- Merge incremental com Delta Lake
-- Colunas técnicas
-- Estratégia Unprocessed + Lookback
+* Leitura JDBC
+* Watermark incremental
+* Persistência em parquet
+* Metadata incremental no HDFS
 
 ---
 
-## 🟢 Trusted
+## 🔵 Raw Layer
 
-Camada responsável pela qualidade e confiabilidade dos dados.
+Camada responsável pela padronização e persistência incremental.
 
-### Validações
+### Características
 
-- CPF
-- Email
-- Telefone
-- Regras de negócio
-- Flags de qualidade
+* Schema enforcement
+* Deduplicação
+* Delta Lake
+* Merge incremental
+* Estratégia híbrida incremental (Unprocessed + Lookback)
 
 ---
 
-## 🟣 Refined
+## 🟢 Trusted Layer
 
-Camada analítica baseada em modelo dimensional.
+Camada responsável pela qualidade e consistência dos dados.
 
-### Dimensões
+### Características
 
-- dim_cliente (SCD Tipo 2)
-- dim_produto (SCD Tipo 2)
-- dim_pagamento
-- dim_data
+* Data Quality
+* Regras de negócio
+* Validações
+* Merge incremental
 
-### Fato
+---
 
-- fato_vendas
+## 🟣 Refined Layer
 
-### Granularidade
+Camada analítica baseada em modelagem dimensional.
+
+### Características
+
+* Star Schema
+* Tabelas fato e dimensão
+* SCD Tipo 2
+* Camada semântica analítica
+* Estruturas otimizadas para BI
+* Enriquecimento dimensional
+
+---
+
+# 📊 Camada Analytics
+
+A plataforma implementa uma camada completa de analytics e SQL serving.
+
+## Hive Metastore
+
+Responsável pelo catálogo centralizado de schemas e tabelas analíticas.
+
+---
+
+## Spark ThriftServer
+
+Responsável por expor consultas Spark SQL via JDBC/ODBC.
+
+---
+
+## Apache Superset
+
+Responsável pela camada de visualização analítica e dashboards executivos.
+
+---
+
+## Principal View Analítica
+
+```sql
+refined.vw_fato_vendas_enriquecida
+```
+
+Essa view semântica alimenta todos os dashboards e análises do projeto.
+
+---
+
+# 🧠 Modelagem Dimensional
+
+A camada Refined implementa um modelo dimensional baseado em Star Schema.
+
+![Modelo Dimensional](docs/screenshots/modelo_dimensional.png)
+
+---
+
+## Tabela Fato
+
+### fato_vendas
+
+Granularidade:
 
 ```text
 1 linha = 1 item de pedido
@@ -135,175 +178,140 @@ Camada analítica baseada em modelo dimensional.
 
 ---
 
-# 🧠 Estratégia Incremental
+## Dimensões
 
-O pipeline implementa uma estratégia incremental híbrida para garantir:
-
-- Reprocessamento controlado
-- Idempotência
-- Tratamento de late arriving data
-- Eficiência operacional
-
-## Estratégias utilizadas
-
-### Watermark
-
-Utilizado na Landing para captura incremental:
-
-```sql
-WHERE data_transacao > watermark
-```
-
-### Unprocessed
-
-Identificação de registros ainda não processados via comparação incremental.
-
-### Lookback
-
-Reprocessamento determinístico das últimas partições para garantir consistência.
-
-### Delta Merge
-
-Operações ACID com merge incremental utilizando Delta Lake.
+| Dimensão      | Estratégia |
+| ------------- | ---------- |
+| dim_cliente   | SCD Tipo 2 |
+| dim_produto   | SCD Tipo 2 |
+| dim_pagamento | Snapshot   |
+| dim_data      | Calendário |
 
 ---
 
-# 📊 Modelo Dimensional
+# 📈 Dashboards Apache Superset
 
-![Modelo Dimensional](docs/diagrams/modelo_dimensional.png)
+## KPIs Executivos
 
----
-
-# ⚙️ Orquestração
-
-O pipeline é orquestrado via Apache Airflow utilizando DAGs desacopladas por camada.
-
-## Responsabilidades
-
-- Agendamento
-- Dependências
-- Observabilidade
-- Retries
-- Logs centralizados
+* Receita Total
+* Ticket Médio por Pedido
+* Total Pedidos
+* Pedidos Não Confirmados
 
 ---
 
-# 🗂️ Estrutura do Projeto
+## Sales Analytics
 
-```text
-medallion-pipeline-ecommerce/
-├── airflow/
-├── spark/
-├── infra/
-├── docs/
-└── README.md
-```
-
-📄 Estrutura completa disponível em:
-
-```text
-docs/project_structure.md
-```
+* Receita por mês
+* Evolução diária da receita
+* Receita por categoria
+* Receita por dia da semana
 
 ---
 
-# 🚀 Como Executar
+## Customer Analytics
+
+* Top clientes por receita
+
+---
+
+## Product Analytics
+
+* Top produtos por receita
+
+---
+
+## Payment Analytics
+
+* Status de pagamentos
+* Tendência de pagamentos
+
+---
+
+# 📸 Screenshots
+
+## Dashboard Executivo — Apache Superset
+
+![Superset](docs/screenshots/superset_dashboard.png)
+
+---
+
+## Apache Airflow
+
+![Airflow](docs/screenshots/airflow_dags.png)
+
+---
+
+## Apache Spark Cluster
+
+![Spark](docs/screenshots/spark_cluster.png)
+
+---
+
+## Hadoop HDFS
+
+![HDFS](docs/screenshots/hdfs_layers.png)
+
+---
+
+# 🚀 Execução
 
 ## Subir infraestrutura
 
 ```bash
-docker compose -f infra/docker/ up -d
+docker compose up -d
 ```
 
 ---
 
-## Acessar interfaces
+# 🌐 Serviços
 
-| Serviço | URL |
-|---|---|
-| Airflow | http://localhost:8080 |
-| Spark Master | http://localhost:8081 |
-| HDFS Namenode | http://localhost:9870 |
-
----
-
-## Executar pipeline
-
-As DAGs podem ser executadas diretamente via interface do Airflow.
-
-Fluxo recomendado:
-
-```text
-01_landing
-   ↓
-02_raw
-   ↓
-03_trusted
-   ↓
-04_refined
-```
+| Serviço         | URL                                            |
+| --------------- | ---------------------------------------------- |
+| Airflow         | [http://localhost:8080](http://localhost:8080) |
+| Spark Master UI | [http://localhost:8081](http://localhost:8081) |
+| HDFS Namenode   | [http://localhost:9870](http://localhost:9870) |
+| Superset        | [http://localhost:8088](http://localhost:8088) |
 
 ---
 
-# 📈 Características do Projeto
+# 📌 Principais Features
 
-- Pipeline incremental real
-- Processamento distribuído
-- Delta Lake
-- Merge incremental
-- SCD Tipo 2
-- Star Schema
-- Data Quality
-- Arquitetura Medallion
-- Spark Standalone Cluster
-- Separação clara por camadas
-- Reprocessamento controlado
-- Governança de dados
-
----
-
-# 📌 Decisões Arquiteturais
-
-| Decisão | Motivo |
-|---|---|
-| Delta Lake | Merge incremental + ACID |
-| Watermark | Ingestão incremental eficiente |
-| Spark Cluster | Processamento distribuído |
-| SCD Tipo 2 | Histórico de entidades |
-| Star Schema | Performance analítica |
-| Docker Compose | Reprodutibilidade |
-
----
-
-# 🔍 Observabilidade
-
-- Logs centralizados via Airflow
-- Monitoramento de DAGs
-- Controle incremental por metadata
-- Arquivos `_SUCCESS`
-- Spark UI para análise de jobs
+* Ingestão incremental via watermark
+* Processamento distribuído com Spark
+* Delta Lake
+* Merge incremental
+* Medallion Architecture
+* SCD Tipo 2
+* Modelagem dimensional
+* Hive Metastore
+* Spark SQL serving
+* Dashboards executivos
+* Infraestrutura dockerizada
+* Arquitetura Lakehouse
 
 ---
 
 # 📚 Documentação Técnica
 
-A documentação técnica do projeto foi separada por responsabilidade para facilitar navegação, manutenção e aprofundamento arquitetural.
+| Documento                 | Descrição                           |
+| ------------------------- | ----------------------------------- |
+| docs/architecture.md      | Arquitetura detalhada da plataforma |
+| docs/project_structure.md | Estrutura e organização do projeto  |
+| docs/decisions.md         | ADRs e decisões arquiteturais       |
 
-| Documento | Descrição |
-|---|---|
-| `docs/architecture.md` | Documentação completa da arquitetura Medallion, estratégias incrementais, infraestrutura distribuída e modelagem dimensional |
-| `docs/project_structure.md` | Organização estrutural do projeto, separação por camadas, DAGs, jobs Spark e componentes da infraestrutura |
-| `docs/decisions.md` | Registro das principais decisões arquiteturais (ADRs), incluindo motivações, benefícios e tradeoffs técnicos |
-
+---
 
 # 🎯 Objetivo
 
-Demonstrar a construção de uma arquitetura moderna de engenharia de dados próxima de cenários reais de produção, com foco em:
+Demonstrar a construção de uma plataforma moderna de engenharia e analytics de dados próxima de ambientes reais de produção, utilizando:
 
-- Escalabilidade
-- Governança
-- Confiabilidade
-- Processamento incremental
-- Modelagem analítica
-- Qualidade de dados
-- Arquitetura distribuída
+* Engenharia de Dados
+* Processamento Distribuído
+* Data Lakehouse
+* SQL Serving
+* Modelagem Dimensional
+* Business Intelligence
+* Governança de Dados
+
+

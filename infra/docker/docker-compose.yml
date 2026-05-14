@@ -243,8 +243,6 @@ services:
       context: ../../superset/docker
       dockerfile: Dockerfile
 
-    container_name: superset
-
     restart: unless-stopped
 
     depends_on:
