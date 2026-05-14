@@ -1,5 +1,9 @@
 # End-to-End Lakehouse Analytics Platform
 
+> ⚠️ Documentação temporariamente desatualizada devido às recentes alterações de arquitetura e integrações do projeto.  
+> Uma revisão completa da documentação está em andamento.
+---
+
 Pipeline de Engenharia de Dados end-to-end baseado em arquitetura Medallion, utilizando Apache Spark, Delta Lake, Apache Airflow e HDFS para processamento incremental distribuído e construção de um modelo dimensional analítico.
 
 ---
