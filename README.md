@@ -24,7 +24,7 @@ A arquitetura simula um ambiente enterprise de Lakehouse Analytics incluindo:
 
 # 🧩 Arquitetura
 
-![Arquitetura](docs/screenshots/diagrama_arquitetura.png)
+![Arquitetura](docs/screenshots/diagrama_arquitetura_2.png)
 
 ---
 
