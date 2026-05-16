@@ -71,4 +71,4 @@ refined.vw_fato_vendas_enriquecida
 
 ## Screenshot
 
-![Executive Dashboard](/../docs/screenshots/superset_dashboard.png)
+![Executive Dashboard](../../../docs/screenshots/superset_dashboard.png)
