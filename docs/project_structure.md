@@ -2,7 +2,7 @@
 
 ```text
 ecommerce-lakehouse-platform/
-
+│    
 ├── airflow
 │   ├── dags
 │   │   ├── 01_landing
@@ -17,6 +17,8 @@ ecommerce-lakehouse-platform/
 │   │   └── 04_refined
 │   │       └── ecommerce_medallion_refined_dag.py
 │   └── Dockerfile
+├── datasets
+│   └── clientes_enrichment.csv
 ├── docs
 │   ├── architecture.md
 │   ├── decisions.md
@@ -78,6 +80,7 @@ ecommerce-lakehouse-platform/
     │       ├── customer_analytics.md
     │       ├── executive_analytics_dashboard.md
     │       ├── payment_analytics.md
+    │       ├── product_analytics.md
     │       └── sales_analytics.md
     ├── docker
     │   └── Dockerfile
@@ -96,15 +99,15 @@ ecommerce-lakehouse-platform/
     │   │   └── volume_pedidos_status_pagamento.sql
     │   ├── product_analytics
     │   │   └── top_produtos_receita.sql
+    │   ├── README.md
     │   ├── sales_analytics
     │   │   ├── evolucao_diaria_receita.sql
     │   │   ├── receita_mensal.sql
     │   │   ├── receita_por_categoria.sql
     │   │   └── receita_por_dia_semana.sql
     │   └── semantic_layer
-    │       └── vw_fato_vendas_enriquecida.sql           
+    │       └── vw_fato_vendas_enriquecida.sql
     └── superset_config.py
-```     
 ### Semantic Layer
 
 A view `vw_fato_vendas_enriquecida.sql` é utilizada como camada semântica analítica reutilizável para consumo no Apache Superset.

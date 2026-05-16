@@ -10,6 +10,12 @@ Este projeto implementa uma plataforma moderna de engenharia e analytics de dado
 
 A plataforma realiza ingestão incremental de dados transacionais de ecommerce a partir do MySQL e datasets externos de enriquecimento, processa os dados através de uma arquitetura Medallion utilizando Apache Spark e Delta Lake, disponibiliza datasets analíticos através do Hive Metastore e Spark ThriftServer, e entrega dashboards executivos utilizando Apache Superset.
 
+Datasets auxiliares utilizados no processo de enrichment estão disponíveis em:
+
+```text
+datasets/
+```
+
 A arquitetura simula um ambiente enterprise de Lakehouse Analytics incluindo:
 
 * Orquestração de pipelines
@@ -290,6 +296,7 @@ Granularidade:
 ```bash
 docker compose up -d
 ```
+
 ---
 
 # 🌐 Serviços
@@ -330,6 +337,7 @@ docker compose up -d
 | superset/sql/README.md    | Camada Analytics Engineering        |
 
 ---
+
 # 📊 Documentação dos Dashboards
 
 A documentação analítica detalhada dos dashboards Apache Superset pode ser encontrada em:
