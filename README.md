@@ -90,9 +90,10 @@ Camada responsável pela padronização e persistência incremental.
 
 ### Características
 
+* Batch incremental por partições
 * Schema enforcement
-* Deduplicação
-* Delta Lake
+* Colunas técnicas
+* Deduplicação por chave (último evento)
 * Merge incremental
 * Estratégia híbrida incremental (Unprocessed + Lookback)
 
@@ -104,9 +105,12 @@ Camada responsável pela qualidade e consistência dos dados.
 
 ### Características
 
-* Data Quality
-* Regras de negócio
-* Validações
+* Batch incremental por partições
+* Limpeza e padronização de dados
+* Validações de negócio (CPF, email e telefone)
+* Flags de qualidade
+* Colunas técnicas
+* Deduplicação por chave (último evento)
 * Merge incremental
 
 ---
@@ -121,7 +125,7 @@ Camada analítica baseada em modelagem dimensional.
 * Tabelas fato e dimensão
 * SCD Tipo 2
 * Camada semântica analítica
-* Estruturas otimizadas para BI
+* Datasets otimizados para serving analítico
 * Enriquecimento dimensional
 
 ---
@@ -145,6 +149,31 @@ Responsável por expor consultas Spark SQL via JDBC/ODBC.
 ## Apache Superset
 
 Responsável pela camada de visualização analítica e dashboards executivos.
+
+---
+
+## Analytics Engineering Layer
+
+As queries analíticas e KPIs utilizados pelos dashboards foram organizados por domínio analítico dentro da estrutura:
+
+```text
+superset/sql/
+```
+
+A plataforma possui:
+
+- Semantic Layer
+- Executive KPIs
+- Sales Analytics
+- Customer Analytics
+- Payment Analytics
+- Product Analytics
+
+Todas as consultas reutilizam a view analítica:
+
+```sql
+refined.vw_fato_vendas_enriquecida
+```
 
 ---
 
@@ -262,6 +291,7 @@ Granularidade:
 docker compose up -d
 ```
 ---
+
 # 🌐 Serviços
 
 | Serviço         | URL                                            |
@@ -297,16 +327,18 @@ docker compose up -d
 | docs/architecture.md      | Arquitetura detalhada da plataforma |
 | docs/project_structure.md | Estrutura e organização do projeto  |
 | docs/decisions.md         | ADRs e decisões arquiteturais       |
+| superset/sql/README.md    | Camada Analytics Engineering        |
 
 ---
 # 📊 Documentação dos Dashboards
 
 A documentação analítica detalhada dos dashboards Apache Superset pode ser encontrada em:
 
-- `superset/dashboards/sales_analytics.md`
-- `superset/dashboards/customer_analytics.md`
-- `superset/dashboards/payment_analytics.md`
-- `superset/dashboards/executive_analytics_dashboard.md`
+- `superset/dashboards/ecommerce/sales_analytics.md`
+- `superset/dashboards/ecommerce/customer_analytics.md`
+- `superset/dashboards/ecommerce/payment_analytics.md`
+- `superset/dashboards/ecommerce/product_analytics.md`
+- `superset/dashboards/ecommerce/executive_analytics_dashboard.md`
 ---
 # 🎯 Objetivo
 

@@ -222,7 +222,7 @@ A camada Refined implementa modelagem dimensional baseada em Star Schema.
 
 ## Modelo Analítico
 
-![Modelo Dimensional](screenshots/modelo_dimensional.png)
+![Modelo Dimensional](docs/screenshots/modelo_dimensional.png)
 
 ---
 
@@ -328,7 +328,29 @@ A camada semântica é baseada em views analíticas reutilizáveis.
 ```sql
 refined.vw_fato_vendas_enriquecida
 ```
+---
+# 📊 Analytics Engineering Layer
 
+As consultas analíticas utilizadas pelos dashboards Apache Superset foram organizadas por domínio analítico dentro da estrutura:
+
+```text
+superset/sql/
+```
+
+A organização inclui:
+
+- Semantic Layer
+- Executive KPIs
+- Sales Analytics
+- Customer Analytics
+- Product Analytics
+- Payment Analytics
+
+Essa estratégia permite:
+- Reutilização analítica
+- Padronização de métricas
+- Separação de responsabilidades
+- Simplificação dos dashboards
 ---
 
 ## Objetivos

@@ -55,6 +55,50 @@ Dataset utilizado:
 ```sql
 refined.vw_fato_vendas_enriquecida
 ```
+---
+
+## Queries SQL
+
+### Executive KPIs
+
+- `superset/sql/executive_kpis/total_pedidos_confirmados.sql`
+
+
+- `superset/sql/executive_kpis/receita_total_confirmada.sql`
+
+
+- `superset/sql/executive_kpis/ticket_medio_confirmado.sql`
+
+
+- `superset/sql/executive_kpis/pedidos_nao_confirmados.sql`
+
+### Sales Analytics
+
+- `superset/sql/sales_analytics/receita_mensal.sql`
+
+
+- `superset/sql/sales_analytics/evolucao_diaria_receita.sql`
+
+
+- `superset/sql/sales_analytics/receita_por_categoria.sql`
+
+
+- `superset/sql/sales_analytics/receita_por_dia_semana.sql`
+
+### Customer Analytics
+
+- `superset/sql/customer_analytics/top_clientes_receita.sql`
+
+### Product Analytics
+
+- `superset/sql/product_analytics/top_produtos_receita.sql`
+
+### Payment Analytics
+
+- `superset/sql/payment_analytics/volume_pedidos_status_pagamento.sql`
+
+
+- `superset/sql/payment_analytics/tendencia_receita_pagamentos.sql`
 
 ---
 

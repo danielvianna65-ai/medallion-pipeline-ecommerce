@@ -73,6 +73,10 @@ Utilizar Delta Lake nas camadas Raw, Trusted e Refined.
 
 # ADR-005 — Estratégia Incremental via Watermark
 
+## Decisão
+
+Utilizar estratégia incremental baseada em watermark para controle de ingestão incremental.
+
 ## Estratégia
 
 ```sql
@@ -89,6 +93,10 @@ WHERE data_transacao > watermark
 
 # ADR-006 — Estratégia Híbrida Incremental
 
+## Decisão
+
+Utilizar estratégia híbrida incremental combinando Unprocessed, Lookback e Delta Merge.
+
 ## Estratégia
 
 * Unprocessed
@@ -104,6 +112,10 @@ WHERE data_transacao > watermark
 ---
 
 # ADR-007 — Uso de Apache Airflow
+
+## Decisão
+
+Utilizar Apache Airflow para orquestração dos pipelines de dados.
 
 ## Motivação
 
@@ -271,7 +283,44 @@ refined.vw_fato_vendas_enriquecida
 * Simplificação para BI
 
 ---
+# ADR-017 — Organização da Camada Analytics Engineering
 
+## Decisão
+
+Organizar consultas analíticas, KPIs executivos e semantic layer por domínio analítico dentro da estrutura:
+
+```text
+superset/sql/
+```
+## Estrutura
+
+* semantic_layer
+* executive_kpis
+* sales_analytics
+* customer_analytics
+* payment_analytics
+* product_analytics
+
+## Motivação
+
+Necessidade de:
+
+* Padronizar consultas analíticas
+* Reutilizar SQL entre dashboards
+* Centralizar regras analíticas
+* Reduzir complexidade na camada BI
+* Melhorar organização e manutenção das queries
+
+## Benefícios
+
+* Reutilização analítica
+* Padronização de métricas
+* Organização modular
+* Simplificação dos dashboards
+* Melhor governança analítica
+* Separação entre serving analítico e visualização BI
+
+---
 # 📌 Considerações Finais
 
 As decisões arquiteturais adotadas priorizam:

@@ -38,3 +38,19 @@ refined.vw_fato_vendas_enriquecida
 ---
 
 ## Queries SQL
+
+- `superset/sql/sales_analytics/receita_mensal.sql`
+- `superset/sql/sales_analytics/evolucao_diaria_receita.sql`
+- `superset/sql/sales_analytics/receita_por_categoria.sql`
+- `superset/sql/sales_analytics/receita_por_dia_semana.sql`
+
+---
+
+## Principais Insights
+
+- Evolução temporal da receita
+- Tendências comerciais ao longo do tempo
+- Categorias com maior participação financeira
+- Comportamento de vendas por dia da semana
+- Volume operacional de vendas
+- Distribuição da receita ao longo do período analisado
