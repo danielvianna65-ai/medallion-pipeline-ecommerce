@@ -65,11 +65,11 @@ with DAG(
                 "spark.executor.cores": "2",
                 "spark.cores.max": "2",
                 "spark.driver.memory": "1g",
-                "spark.sql.shuffle.partitions": "8",
+                "spark.sql.adaptive.enabled": "true",
+                "spark.sql.shuffle.partitions": "4",
                 "spark.hadoop.dfs.replication": "1",
                 "spark.sql.extensions": "io.delta.sql.DeltaSparkSessionExtension",
                 "spark.sql.catalog.spark_catalog": "org.apache.spark.sql.delta.catalog.DeltaCatalog",
-                "spark.sql.adaptive.enabled": "true",
                 "spark.sql.adaptive.coalescePartitions.enabled": "true",
                 "spark.jars": (
                     "/opt/spark/external-jars/delta-spark_2.12-3.2.0.jar,"
