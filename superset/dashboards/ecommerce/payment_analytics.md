@@ -42,7 +42,7 @@ refined.vw_fato_vendas_enriquecida
 - `superset/sql/payment_analytics/volume_pedidos_status_pagamento.sql`
 
 
-- `superset/sql/payment_analytics/tendencia_receita_pagamentos.sql`
+- `superset/sql/payment_analytics/tendencia_de_pagamentos_por_status.sql`
 
 ---
 
@@ -54,3 +54,8 @@ refined.vw_fato_vendas_enriquecida
 - Comportamento transacional dos pedidos
 - Eficiência operacional dos pagamentos
 
+## Screenshot
+### Volume por Status de Pagamento
+![Volume Pedidos Status Pagamento](../../../docs/screenshots/volume_pedidos_status_pagamento.png)
+### Tendência Temporal dos Pagamentos
+![Tendencia de Pagamentos Por Status](../../../docs/screenshots/tendencia_de_pagamentos_por_status.png)

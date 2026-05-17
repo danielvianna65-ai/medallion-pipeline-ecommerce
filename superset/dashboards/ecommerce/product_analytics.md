@@ -31,7 +31,9 @@ Dataset utilizado:
 ```sql
 refined.vw_fato_vendas_enriquecida
 ```
+
 ---
+
 ## Queries SQL
 
 - `superset/sql/product_analytics/top_produtos_receita.sql`
@@ -40,7 +42,16 @@ refined.vw_fato_vendas_enriquecida
 
 ## Principais Insights
 
-- Produtos com maior participação financeira
+- Produtos com maior participação na receita total
 - Distribuição da receita entre produtos
-- Performance comercial dos produtos
-- Produtos com maior relevância analítica
+- Produtos com maior relevância comercial
+- Performance financeira dos produtos
+- Concentração de faturamento por produto
+
+---
+
+## Screenshot
+
+### Top Produtos por Receita
+
+![Top Produtos por Receita](../../../docs/screenshots/top_produtos_receita.png)

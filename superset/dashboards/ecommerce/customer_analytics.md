@@ -18,6 +18,14 @@ refined.vw_fato_vendas_enriquecida
 
 - Clientes com maior participação na receita total
 - Perfil de consumo dos clientes
-- Concentração de faturamento
-- Comportamento financeiro por cliente
-- Participação dos clientes nas vendas
+- Concentração de faturamento por cliente
+- Participação financeira dos clientes nas vendas
+- Clientes com maior relevância comercial
+
+---
+
+## Screenshot
+
+### Top Clientes por Receita
+
+![Top Clientes por Receita](../../../docs/screenshots/top_clientes_receita.png)

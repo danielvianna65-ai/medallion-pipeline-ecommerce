@@ -115,4 +115,6 @@ refined.vw_fato_vendas_enriquecida
 
 ## Screenshot
 
+### Ecommerce Executive Analytics Platform
+
 ![Executive Dashboard](../../../docs/screenshots/superset_dashboard.png)

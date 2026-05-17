@@ -54,3 +54,23 @@ refined.vw_fato_vendas_enriquecida
 - Comportamento de vendas por dia da semana
 - Volume operacional de vendas
 - Distribuição da receita ao longo do período analisado
+
+---
+
+## Screenshot
+
+### Receita Mensal
+
+![Receita Mensal](../../../docs/screenshots/receita_mensal.png)
+
+### Evolução Diária da Receita
+
+![Evolucao Diaria Receita](../../../docs/screenshots/evolucao_diaria_receita.png)
+
+### Receita por Categoria
+
+![Receita por Categoria](../../../docs/screenshots/receita_por_categoria.png)
+
+### Receita por Dia da Semana
+
+![Receita por Dia da Semana](../../../docs/screenshots/receita_por_dia_semana.png)
