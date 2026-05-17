@@ -223,7 +223,7 @@ else:
         trusted_customers_delta_table.alias("target")
         .merge(
             deduplicated_customers_df.alias("source"),
-            f"target.{PRIMARY_KEY} = source.{PRIMARY_KEY} AND target.dt = source.dt"
+            f"target.{PRIMARY_KEY} = source.{PRIMARY_KEY}"
         )
         .whenMatchedUpdate(
             condition=f"source.{WATERMARK_COL} > target.{WATERMARK_COL}",
