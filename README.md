@@ -131,24 +131,24 @@ Camada analítica baseada em modelagem dimensional.
 * Tabelas fato e dimensão
 * SCD Tipo 2
 * Camada semântica analítica
-* Datasets otimizados para serving analítico
+* Datasets otimizados para consulta analítica
 * Enriquecimento dimensional
 
 ---
 
 # 📊 Camada Analytics
 
-A plataforma implementa uma camada completa de analytics e SQL serving.
+A plataforma implementa uma camada completa de analytics e SQL.
 
 ## Hive Metastore
 
-Responsável pelo catálogo centralizado de schemas e tabelas analíticas.
+Responsável pelo catálogo centralizado de schemas e tabelas analíticas ad hoc.
 
 ---
 
 ## Spark ThriftServer
 
-Responsável por expor consultas Spark SQL via JDBC/ODBC.
+Responsável por permitir consultas Spark SQL via JDBC/ODBC.
 
 ---
 

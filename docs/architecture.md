@@ -22,7 +22,7 @@ A arquitetura foi projetada para garantir:
 
 # 🧩 Arquitetura Geral
 
-![Arquitetura](docs/screenshots/diagrama_arquitetura.png)
+![Arquitetura](screenshots/diagrama_arquitetura.png)
 
 ---
 
@@ -222,7 +222,7 @@ A camada Refined implementa modelagem dimensional baseada em Star Schema.
 
 ## Modelo Analítico
 
-![Modelo Dimensional](docs/screenshots/modelo_dimensional.png)
+![Modelo Dimensional](screenshots/modelo_dimensional.png)
 
 ---
 
